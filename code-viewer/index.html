@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Code Viewer</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: #1e1e1e; color: #d4d4d4;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px; overflow: hidden; }
+body { display: flex; flex-direction: column; }
+
+/* ── Toolbar ── */
+#toolbar { background: #323233; border-bottom: 1px solid #3c3c3c;
+  padding: 0 12px; height: 36px; display: flex; align-items: center;
+  gap: 10px; flex-shrink: 0; }
+.btn { background: #0e639c; color: #fff; border: none; padding: 4px 12px;
+  cursor: pointer; font-size: 12px; white-space: nowrap; flex-shrink: 0; }
+.btn:hover { background: #1177bb; }
+#folder-name { color: #ccc; font-size: 12px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+#ignored-notice { color: #858585; font-size: 11px; white-space: nowrap; flex-shrink: 0; }
+#file-count { color: #858585; font-size: 11px; white-space: nowrap; flex-shrink: 0; }
+
+/* ── Layout ── */
+#main { display: flex; flex: 1; overflow: hidden; min-height: 0; }
+
+/* ── Sidebar ── */
+#sidebar { width: 280px; min-width: 280px; background: #252526;
+  border-right: 1px solid #3c3c3c; overflow-y: auto; overflow-x: auto; flex-shrink: 0; }
+
+/* ── Tree ── */
+.tree-item { display: flex; align-items: center; height: 22px;
+  cursor: pointer; user-select: none; white-space: nowrap; }
+.tree-item:hover { background: #2a2d2e; }
+.tree-item.selected { background: #094771; }
+.tree-toggle { width: 16px; min-width: 16px; text-align: center;
+  font-size: 10px; color: #858585; }
+.tree-icon { margin-right: 4px; font-size: 14px; line-height: 1; }
+.tree-name { overflow: hidden; text-overflow: ellipsis; color: #d4d4d4; padding-right: 8px; }
+
+/* ── Content ── */
+#content { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+#file-info { display: none; background: #2d2d30; border-bottom: 1px solid #3c3c3c;
+  padding: 3px 12px; font-size: 11px; color: #858585; flex-shrink: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#preview-area { flex: 1; overflow: auto; position: relative; min-height: 0; }
+#empty-state { position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%,-50%); color: #858585; font-size: 14px;
+  text-align: center; pointer-events: none; white-space: nowrap; }
+#truncated-notice { display: none; background: #2d2d30; border-top: 1px solid #3c3c3c;
+  padding: 5px 12px; font-size: 11px; color: #d7ba7d; flex-shrink: 0; }
+
+/* ── Code view ── */
+.code-wrap { display: flex; font-family: ui-monospace, Menlo, Consolas, "Courier New", monospace;
+  font-size: 13px; line-height: 1.5; min-height: 100%; }
+.line-nums { padding: 8px 10px 8px 8px; color: #858585; background: #1e1e1e;
+  border-right: 1px solid #3c3c3c; user-select: none; text-align: right;
+  min-width: 48px; flex-shrink: 0; white-space: pre; line-height: 1.5; }
+.code-body { padding: 8px 12px; white-space: pre; flex: 1; color: #d4d4d4;
+  overflow-x: visible; line-height: 1.5; tab-size: 2; }
+
+/* ── Media ── */
+.preview-img { max-width: 100%; display: block; margin: 16px; }
+.preview-iframe { width: 100%; height: 100%; border: none; display: block; }
+.preview-video, .preview-audio { display: block; margin: 16px; max-width: calc(100% - 32px); }
+.preview-unsupported { padding: 24px; color: #858585; line-height: 1.8; }
+.preview-error { padding: 24px; color: #f44747; line-height: 1.8; }
+
+/* ── Syntax highlight colours (VSCode Dark+) ── */
+.hl-kw   { color: #569cd6; }   /* blue      – keywords           */
+.hl-str  { color: #ce9178; }   /* orange    – strings            */
+.hl-cmt  { color: #6a9955; }   /* green     – comments           */
+.hl-num  { color: #b5cea8; }   /* lt-green  – numbers            */
+.hl-fn   { color: #dcdcaa; }   /* yellow    – function calls     */
+.hl-cls  { color: #4ec9b0; }   /* teal      – types / classes    */
+.hl-prop { color: #9cdcfe; }   /* lt-blue   – properties / keys  */
+.hl-pp   { color: #c586c0; }   /* purple    – decorators / dirs  */
+.hl-tag  { color: #569cd6; }   /* blue      – HTML tags          */
+.hl-attr { color: #9cdcfe; }   /* lt-blue   – HTML attributes    */
+.hl-sel  { color: #d7ba7d; }   /* gold      – CSS selectors      */
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <button class="btn" id="open-btn">選擇資料夾</button>
+  <input type="file" id="file-input" webkitdirectory multiple style="display:none">
+  <span id="folder-name">尚未選擇資料夾</span>
+  <span id="ignored-notice"></span>
+  <span id="file-count"></span>
+</div>
+
+<div id="main">
+  <div id="sidebar"><div id="tree-root"></div></div>
+  <div id="content">
+    <div id="file-info"></div>
+    <div id="preview-area">
+      <div id="empty-state">請點擊左上角「選擇資料夾」開始瀏覽</div>
+    </div>
+    <div id="truncated-notice"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SYNTAX HIGHLIGHTER
+// ═══════════════════════════════════════════════════════════════════════════════
+const Syntax = (() => {
+
+  // ── helpers ──────────────────────────────────────────────────────────────────
+  function H(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  function S(c, s) { return '<span class="hl-' + c + '">' + H(s) + '</span>'; }
+
+  // ── extension → language group ───────────────────────────────────────────────
+  function langOf(ext) {
+    return ({
+      js:'js',jsx:'js',mjs:'js',cjs:'js',ts:'js',tsx:'js',mts:'js',cts:'js',
+      py:'py',pyw:'py',pyi:'py',
+      go:'go',
+      rs:'rust',
+      java:'java',kt:'java',kts:'java',scala:'java',groovy:'java',
+      c:'c',cpp:'c',cc:'c',cxx:'c',h:'c',hpp:'c',hxx:'c',
+      cs:'cs',
+      php:'php',phtml:'php',
+      rb:'rb',rake:'rb',
+      sh:'sh',bash:'sh',zsh:'sh',fish:'sh',ps1:'sh',
+      swift:'swift',dart:'dart',
+      lua:'lua',
+      r:'r',
+      ex:'elixir',exs:'elixir',
+      html:'html',htm:'html',xml:'html',svg:'html',xhtml:'html',vue:'html',svelte:'html',
+      css:'css',scss:'css',sass:'css',less:'css',
+      json:'json',jsonc:'json',json5:'json',
+      md:'md',markdown:'md',
+      sql:'sql',
+      yaml:'yaml',yml:'yaml',
+      toml:'toml',
+    })[ext] || null;
+  }
+
+  // ── keyword sets ─────────────────────────────────────────────────────────────
+  function kset(s) { return new Set(s.trim().split(/\s+/)); }
+
+  const KW = {
+    js: kset(`abstract arguments as async await boolean break byte case catch char class const
+      continue debugger default delete do double else enum eval export extends false final
+      finally float for from function get goto if implements import in instanceof int interface
+      let long native new null of package private protected public return set short static
+      super switch synchronized this throw throws transient true try type typeof undefined
+      var void volatile while with yield keyof readonly declare namespace module any never
+      unknown object string number boolean symbol bigint`),
+
+    py: kset(`False None True and as assert async await break class continue def del elif else
+      except finally for from global if import in is lambda nonlocal not or pass raise
+      return try while with yield self cls super print len range type input int float str
+      list dict set tuple bool`),
+
+    go: kset(`break case chan const continue default defer else fallthrough for func go goto
+      if import interface map package range return select struct switch type var nil true false
+      iota error string int int8 int16 int32 int64 uint uint8 uint16 uint32 uint64 uintptr
+      float32 float64 complex64 complex128 byte rune bool make len cap append copy delete
+      close new panic recover print println`),
+
+    rust: kset(`as async await break const continue crate dyn else enum extern false fn for if
+      impl in let loop match mod move mut pub ref return self Self static struct super trait
+      true type union unsafe use where while i8 i16 i32 i64 i128 isize u8 u16 u32 u64 u128
+      usize f32 f64 bool char str String Vec HashMap HashSet Option Result Box Arc Mutex
+      None Some Ok Err`),
+
+    java: kset(`abstract assert boolean break byte case catch char class const continue default
+      do double else enum extends final finally float for goto if implements import instanceof
+      int interface long native new null package private protected public return short static
+      strictfp super switch synchronized this throw throws transient true false try var void
+      volatile while record sealed permits yields`),
+
+    c: kset(`auto break case char const continue default do double else enum extern float for
+      goto if inline int long register restrict return short signed sizeof static struct
+      switch typedef union unsigned void volatile while NULL nullptr true false`),
+
+    cs: kset(`abstract as base bool break byte case catch char checked class const continue
+      decimal default delegate do double else enum event explicit extern false finally fixed
+      float for foreach goto if implicit in int interface internal is lock long namespace new
+      null object operator out override params private protected public readonly ref return
+      sbyte sealed short sizeof stackalloc static string struct switch this throw true try
+      typeof uint ulong unchecked unsafe ushort using virtual void volatile while var async
+      await dynamic`),
+
+    php: kset(`abstract and array as break callable case catch class clone const continue declare
+      default do echo else elseif empty enddeclare endfor endforeach endif endswitch endwhile
+      eval exit extends final finally fn for foreach function global goto if implements include
+      include_once instanceof insteadof interface isset list match namespace new null or print
+      private protected public require require_once return static switch throw trait try unset
+      use var while xor yield true false`),
+
+    rb: kset(`__ENCODING__ __LINE__ __FILE__ BEGIN END alias and begin break case class def
+      defined do else elsif end ensure false for if in module next nil not or redo rescue
+      retry return self super then true undef unless until when while yield`),
+
+    sh: kset(`if then else elif fi for do done while until case esac function in return export
+      local readonly declare set unset echo printf read source alias break continue exit
+      trap true false select`),
+
+    swift: kset(`associatedtype class deinit enum extension fileprivate func import init inout
+      internal let open operator precedencegroup private protocol public rethrows return static
+      struct subscript typealias var break case continue default defer do else fallthrough for
+      guard if in repeat return throw try where while as Any catch false is nil self Self
+      super true`),
+
+    dart: kset(`abstract as assert async await break case catch class const continue covariant
+      default deferred do dynamic else enum export extends extension external factory false
+      final finally for Function get hide if implements import in interface is late library
+      mixin new null on operator part required rethrow return set show static super switch
+      sync this throw true try typedef var void while with yield`),
+
+    lua: kset(`and break do else elseif end false for function goto if in local nil not or
+      repeat return then true until while`),
+
+    r: kset(`if else for while repeat function return next break TRUE FALSE NULL Inf NaN NA
+      NA_integer_ NA_real_ NA_complex_ NA_character_ in`),
+
+    elixir: kset(`after alias and case catch cond def defcallback defdelegate defexception
+      defimpl defmacro defmacrop defmodule defoverridable defp defprotocol defrecord defstruct
+      do else end fn for if import in not or quote raise receive require rescue use when with
+      true false nil`),
+
+    sql: kset(`SELECT FROM WHERE INSERT INTO UPDATE DELETE CREATE DROP TABLE INDEX VIEW ALTER
+      ADD COLUMN PRIMARY KEY FOREIGN REFERENCES UNIQUE NOT NULL DEFAULT AND OR IS IN LIKE
+      BETWEEN AS ON JOIN INNER LEFT RIGHT FULL OUTER CROSS GROUP BY HAVING ORDER LIMIT
+      OFFSET DISTINCT UNION ALL EXISTS CASE WHEN THEN ELSE END BEGIN COMMIT ROLLBACK
+      TRANSACTION DATABASE SCHEMA TRIGGER PROCEDURE FUNCTION IF WITH VALUES SET RETURNING
+      DECLARE VARCHAR INT INTEGER BOOLEAN TEXT FLOAT DOUBLE REAL NUMERIC TIMESTAMP DATE
+      TIME CHAR BIGINT SERIAL`),
+  };
+
+  // ── generic C-style tokenizer ─────────────────────────────────────────────────
+  // Opts: blockCmt(bool), lineCmt(string|null), hashCmt(bool), tripleQ(bool)
+  function makeRe(opts) {
+    const o = Object.assign({ blockCmt:true, lineCmt:'//', hashCmt:false, tripleQ:false }, opts);
+    const p = [];
+
+    // block comment  /* ... */  or  --[[ ... ]]  (Lua)
+    if (o.blockCmt) {
+      if (o.lineCmt === '--') p.push('(?<blkCmt>--\\[\\[[\\s\\S]*?\\]\\])');
+      else                    p.push('(?<blkCmt>\\/\\*[\\s\\S]*?\\*\\/)');
+    }
+    // line comment
+    if (o.lineCmt) {
+      const e = o.lineCmt.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+      p.push(`(?<lnCmt>${e}[^\\n]*)`);
+    }
+    if (o.hashCmt) p.push('(?<hashCmt>#[^\\n]*)');
+
+    // strings
+    if (o.tripleQ) {
+      p.push('(?<triD>"""[\\s\\S]*?""")');
+      p.push("(?<triS>'''[\\s\\S]*?''')");
+    }
+    p.push('(?<tmpl>`[\\s\\S]*?`)');
+    p.push('(?<dStr>"(?:[^"\\\\\\n]|\\\\.)*")');
+    p.push("(?<sStr>'(?:[^'\\\\\\n]|\\\\.)*')");
+
+    // numbers: hex / bin / oct / float / int
+    p.push('(?<num>\\b0[xX][0-9a-fA-F][0-9a-fA-F_]*[nN]?\\b'
+          +'|\\b0[bB][01][01_]*[nN]?\\b'
+          +'|\\b0[oO][0-7][0-7_]*[nN]?\\b'
+          +'|\\b\\d[\\d_]*\\.?[\\d_]*(?:[eE][+-]?[\\d_]+)?[fFdDlLuUnm]?\\b)');
+
+    p.push('(?<deco>@[A-Za-z_]\\w*)');   // decorator / annotation
+    p.push('(?<id>[A-Za-z_$][\\w$]*)'); // identifier
+
+    return new RegExp(p.join('|'), 'g');
+  }
+
+  // cache compiled regexes
+  const RE_CACHE = {};
+  const RE_OPTS = {
+    js:     { blockCmt:true,  lineCmt:'//', hashCmt:false, tripleQ:false },
+    py:     { blockCmt:false, lineCmt:null, hashCmt:true,  tripleQ:true  },
+    go:     { blockCmt:true,  lineCmt:'//', hashCmt:false, tripleQ:false },
+    rust:   { blockCmt:true,  lineCmt:'//', hashCmt:false, tripleQ:false },
+    java:   { blockCmt:true,  lineCmt:'//', hashCmt:false, tripleQ:false },
+    c:      { blockCmt:true,  lineCmt:'//', hashCmt:true,  tripleQ:false },
+    cs:     { blockCmt:true,  lineCmt:'//', hashCmt:false, tripleQ:false },
+    php:    { blockCmt:true,  lineCmt:'//', hashCmt:true,  tripleQ:false },
+    rb:     { blockCmt:false, lineCmt:null, hashCmt:true,  tripleQ:false },
+    sh:     { blockCmt:false, lineCmt:null, hashCmt:true,  tripleQ:false },
+    swift:  { blockCmt:true,  lineCmt:'//', hashCmt:false, tripleQ:false },
+    dart:   { blockCmt:true,  lineCmt:'//', hashCmt:false, tripleQ:false },
+    lua:    { blockCmt:true,  lineCmt:'--', hashCmt:false, tripleQ:false },
+    r:      { blockCmt:false, lineCmt:null, hashCmt:true,  tripleQ:false },
+    elixir: { blockCmt:false, lineCmt:null, hashCmt:true,  tripleQ:false },
+  };
+
+  // PascalCase → type/class hint
+  const PASCAL = /^[A-Z][A-Za-z0-9]*$/;
+
+  function hlGeneric(code, lang) {
+    const kwSet = KW[lang] || new Set();
+    if (!RE_CACHE[lang]) RE_CACHE[lang] = makeRe(RE_OPTS[lang] || {});
+    const re = RE_CACHE[lang];
+
+    let out = '', last = 0;
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(code)) !== null) {
+      if (m.index > last) out += H(code.slice(last, m.index));
+      const g = m.groups, raw = m[0];
+
+      if      (g.blkCmt  !== undefined) out += S('cmt', raw);
+      else if (g.lnCmt   !== undefined) out += S('cmt', raw);
+      else if (g.hashCmt !== undefined) out += S('cmt', raw);
+      else if (g.triD    !== undefined) out += S('str', raw);
+      else if (g.triS    !== undefined) out += S('str', raw);
+      else if (g.tmpl    !== undefined) out += S('str', raw);
+      else if (g.dStr    !== undefined) out += S('str', raw);
+      else if (g.sStr    !== undefined) out += S('str', raw);
+      else if (g.num     !== undefined) out += S('num', raw);
+      else if (g.deco    !== undefined) out += S('pp',  raw);
+      else if (g.id      !== undefined) {
+        if (kwSet.has(raw)) {
+          out += S('kw', raw);
+        } else if (PASCAL.test(raw)) {
+          out += S('cls', raw);
+        } else {
+          // peek: function call?
+          out += (code[m.index + raw.length] === '(') ? S('fn', raw) : H(raw);
+        }
+      }
+      last = m.index + raw.length;
+    }
+    if (last < code.length) out += H(code.slice(last));
+    return out;
+  }
+
+  // ── HTML / XML tokenizer ─────────────────────────────────────────────────────
+  function hlHTML(code) {
+    const re = /(?<cmt><!--[\s\S]*?-->)|(?<cdata><!\[CDATA\[[\s\S]*?\]\]>)|(?<doctype><!DOCTYPE[^>]*>i?)|(?<tag><\/?[A-Za-z][A-Za-z0-9:._-]*)|(?<close>>)|(?<aval>"[^"]*"|'[^']*')|(?<aname>[A-Za-z_:][A-Za-z0-9_.:-]*(?=\s*[=/>]|\s+[A-Za-z]))|(?<ent>&(?:#\d+|#x[0-9a-fA-F]+|[A-Za-z]+);)/g;
+
+    let out = '', last = 0, inTag = false, m;
+    re.lastIndex = 0;
+    while ((m = re.exec(code)) !== null) {
+      if (m.index > last) out += H(code.slice(last, m.index));
+      const g = m.groups, raw = m[0];
+
+      if      (g.cmt     !== undefined) out += S('cmt',  raw);
+      else if (g.cdata   !== undefined) out += S('str',  raw);
+      else if (g.doctype !== undefined) out += S('kw',   raw);
+      else if (g.tag     !== undefined) { out += S('tag', raw); inTag = true; }
+      else if (g.close   !== undefined) { out += H(raw);         inTag = false; }
+      else if (g.aval    !== undefined) out += S('str',  raw);
+      else if (g.aname   !== undefined) out += inTag ? S('attr', raw) : H(raw);
+      else if (g.ent     !== undefined) out += S('num',  raw);
+      else out += H(raw);
+
+      last = m.index + raw.length;
+    }
+    if (last < code.length) out += H(code.slice(last));
+    return out;
+  }
+
+  // ── CSS / SCSS tokenizer ──────────────────────────────────────────────────────
+  function hlCSS(code) {
+    const re = /(?<cmt>\/\*[\s\S]*?\*\/)|(?<at>@[A-Za-z][\w-]*)|(?<str>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(?<hex>#[0-9a-fA-F]{3,8}(?=[^A-Za-z]|$))|(?<num>-?(?:\.\d+|\d+\.?\d*)(?:[a-zA-Z%]+)?)|(?<prop>[a-z][a-z-]*(?=\s*:))|(?<pseudo>::?[A-Za-z][A-Za-z-]*)|(?<varref>var\(--[^)]*\))|(?<sel>[.#]?[A-Za-z][A-Za-z0-9_-]*(?=[^{};]*\{))/g;
+
+    let out = '', last = 0, m;
+    re.lastIndex = 0;
+    while ((m = re.exec(code)) !== null) {
+      if (m.index > last) out += H(code.slice(last, m.index));
+      const g = m.groups, raw = m[0];
+
+      if      (g.cmt    !== undefined) out += S('cmt',  raw);
+      else if (g.at     !== undefined) out += S('pp',   raw);
+      else if (g.str    !== undefined) out += S('str',  raw);
+      else if (g.hex    !== undefined) out += S('num',  raw);
+      else if (g.num    !== undefined) out += S('num',  raw);
+      else if (g.prop   !== undefined) out += S('prop', raw);
+      else if (g.pseudo !== undefined) out += S('kw',   raw);
+      else if (g.varref !== undefined) out += S('prop', raw);
+      else if (g.sel    !== undefined) out += S('sel',  raw);
+      else out += H(raw);
+
+      last = m.index + raw.length;
+    }
+    if (last < code.length) out += H(code.slice(last));
+    return out;
+  }
+
+  // ── JSON tokenizer ────────────────────────────────────────────────────────────
+  function hlJSON(code) {
+    const re = /(?<key>"(?:[^"\\]|\\.)*"(?=\s*:))|(?<str>"(?:[^"\\]|\\.)*")|(?<num>-?(?:\.\d+|\d+\.?\d*)(?:[eE][+-]?\d+)?)|(?<kw>true|false|null)/g;
+
+    let out = '', last = 0, m;
+    re.lastIndex = 0;
+    while ((m = re.exec(code)) !== null) {
+      if (m.index > last) out += H(code.slice(last, m.index));
+      const g = m.groups, raw = m[0];
+
+      if      (g.key !== undefined) out += S('prop', raw);
+      else if (g.str !== undefined) out += S('str',  raw);
+      else if (g.num !== undefined) out += S('num',  raw);
+      else if (g.kw  !== undefined) out += S('kw',   raw);
+      else out += H(raw);
+
+      last = m.index + raw.length;
+    }
+    if (last < code.length) out += H(code.slice(last));
+    return out;
+  }
+
+  // ── YAML tokenizer (line-based) ───────────────────────────────────────────────
+  function hlYAMLLine(line) {
+    const trimmed = line.trimStart();
+
+    // Comment
+    if (trimmed.startsWith('#')) return S('cmt', line);
+
+    // Section / anchor / alias
+    if (trimmed.startsWith('---') || trimmed.startsWith('...')) return S('kw', line);
+
+    // key: value
+    const km = line.match(/^(\s*)([\w'"!*&][^:]*?)(\s*:\s?)(.*)$/);
+    if (km) {
+      const [, indent, key, sep, rest] = km;
+      return H(indent) + S('prop', key) + H(sep) + hlYAMLValue(rest);
+    }
+
+    return H(line);
+  }
+
+  function hlYAMLValue(v) {
+    if (!v) return '';
+    // trailing comment
+    const ci = v.search(/\s#/);
+    let main = v, cmt = '';
+    if (ci >= 0) { main = v.slice(0, ci); cmt = v.slice(ci); }
+
+    let out;
+    if (/^"(?:[^"\\]|\\.)*"$/.test(main) || /^'(?:[^'\\]|\\.)*'$/.test(main)) out = S('str', main);
+    else if (/^(true|false|null|~|yes|no|on|off)$/i.test(main.trim()))         out = S('kw',  main);
+    else if (/^-?[\d.]+$/.test(main.trim()))                                    out = S('num', main);
+    else out = H(main);
+
+    if (cmt) out += S('cmt', cmt);
+    return out;
+  }
+
+  function hlYAML(code) {
+    return code.split('\n').map(hlYAMLLine).join('\n');
+  }
+
+  // ── TOML tokenizer (line-based) ───────────────────────────────────────────────
+  function hlTOML(code) {
+    return code.split('\n').map(line => {
+      const t = line.trimStart();
+      if (t.startsWith('#'))          return S('cmt', line);
+      if (/^\[/.test(t))              return S('sel', line);
+      const m = line.match(/^(\s*)([\w.-]+)(\s*=\s*)(.*)/);
+      if (m) {
+        const [, ind, key, eq, val] = m;
+        let vhl = H(val);
+        // re-highlight value parts (safe: operating on H()-escaped string only for display)
+        // Build by tokenising val directly
+        let vout = '';
+        const vRe = /("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(true|false)|(#[^\n]*)|(-?[\d.]+(?:[eE][+-]?\d+)?)/g;
+        let vLast = 0, vm;
+        vRe.lastIndex = 0;
+        while ((vm = vRe.exec(val)) !== null) {
+          if (vm.index > vLast) vout += H(val.slice(vLast, vm.index));
+          if      (vm[1]) vout += S('str', vm[1]);
+          else if (vm[2]) vout += S('kw',  vm[2]);
+          else if (vm[3]) vout += S('cmt', vm[3]);
+          else if (vm[4]) vout += S('num', vm[4]);
+          vLast = vm.index + vm[0].length;
+        }
+        vout += H(val.slice(vLast));
+        return H(ind) + S('prop', key) + H(eq) + vout;
+      }
+      return H(line);
+    }).join('\n');
+  }
+
+  // ── Markdown tokenizer (line-based + inline) ─────────────────────────────────
+  function hlMDInline(text) {
+    const re = /(?<code>`[^`]+`)|(?<bold>\*\*[^*\n]+\*\*|__[^_\n]+__)|(?<ital>\*[^*\n]+\*|_[^_\n]+_)|(?<link>\[[^\]\n]*\]\([^)\n]*\))/g;
+    let out = '', last = 0, m;
+    re.lastIndex = 0;
+    while ((m = re.exec(text)) !== null) {
+      if (m.index > last) out += H(text.slice(last, m.index));
+      const g = m.groups, raw = m[0];
+      if      (g.code) out += S('str', raw);
+      else if (g.bold) out += S('kw',  raw);
+      else if (g.ital) out += S('fn',  raw);
+      else if (g.link) out += S('fn',  raw);
+      else out += H(raw);
+      last = m.index + raw.length;
+    }
+    out += H(text.slice(last));
+    return out;
+  }
+
+  function hlMD(code) {
+    const lines = code.split('\n');
+    let fence = false;
+    return lines.map(line => {
+      if (/^(`{3,}|~{3,})/.test(line)) { fence = !fence; return S('cmt', line); }
+      if (fence)                                          return H(line);
+      if (/^#{1,6}\s/.test(line))                        return S('kw',  line);
+      if (/^[-*_]{3,}\s*$/.test(line))                   return S('cmt', line);
+      if (/^>/.test(line))                                return S('cmt', line);
+      if (/^(\s*[-*+]|\d+\.) /.test(line)) {
+        const pm = line.match(/^(\s*(?:[-*+]|\d+\.)\s)(.*)/);
+        if (pm) return H(pm[1]) + hlMDInline(pm[2]);
+      }
+      return hlMDInline(line);
+    }).join('\n');
+  }
+
+  // ── SQL tokenizer ─────────────────────────────────────────────────────────────
+  function hlSQL(code) {
+    const kwSet = KW.sql;
+    const re = /(?<lnCmt>--[^\n]*)|(?<blkCmt>\/\*[\s\S]*?\*\/)|(?<str>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(?<num>\b\d+\.?\d*\b)|(?<id>[A-Za-z_][A-Za-z0-9_]*)/g;
+
+    let out = '', last = 0, m;
+    re.lastIndex = 0;
+    while ((m = re.exec(code)) !== null) {
+      if (m.index > last) out += H(code.slice(last, m.index));
+      const g = m.groups, raw = m[0];
+
+      if      (g.lnCmt  !== undefined) out += S('cmt', raw);
+      else if (g.blkCmt !== undefined) out += S('cmt', raw);
+      else if (g.str    !== undefined) out += S('str', raw);
+      else if (g.num    !== undefined) out += S('num', raw);
+      else if (g.id     !== undefined) out += kwSet.has(raw.toUpperCase()) ? S('kw', raw) : H(raw);
+      else out += H(raw);
+
+      last = m.index + raw.length;
+    }
+    if (last < code.length) out += H(code.slice(last));
+    return out;
+  }
+
+  // ── public API ───────────────────────────────────────────────────────────────
+  const MAX = 400 * 1024; // skip highlighting for files > 400 KB
+
+  function highlight(code, ext) {
+    if (!ext || code.length > MAX) return null;
+    const lang = langOf(ext);
+    if (!lang) return null;
+    try {
+      if (lang === 'html')                              return hlHTML(code);
+      if (lang === 'css')                               return hlCSS(code);
+      if (lang === 'json')                              return hlJSON(code);
+      if (lang === 'yaml')                              return hlYAML(code);
+      if (lang === 'toml')                              return hlTOML(code);
+      if (lang === 'md')                                return hlMD(code);
+      if (lang === 'sql')                               return hlSQL(code);
+      if (RE_OPTS[lang] !== undefined || KW[lang])      return hlGeneric(code, lang);
+      return null;
+    } catch (e) { return null; }
+  }
+
+  return { highlight };
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  MAIN APP
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const IGNORED_DIRS = new Set([
+  'node_modules','.git','dist','build','.next','.cache',
+  '__pycache__','.venv','venv','.idea','.vscode','target','.DS_Store',
+]);
+
+const TEXT_EXTS = new Set([
+  'txt','md','markdown','json','jsonc','json5','js','jsx','mjs','cjs','ts','tsx',
+  'mts','cts','py','pyw','pyi','rb','go','rs','java','kt','kts','scala','groovy',
+  'c','cc','cpp','cxx','h','hpp','hxx','cs','php','sh','bash','zsh','fish','ps1',
+  'swift','dart','lua','r','ex','exs','erl','hs','ml','clj','cljs','html','htm',
+  'xml','svg','xhtml','vue','svelte','astro','css','scss','sass','less','styl',
+  'yaml','yml','toml','ini','cfg','conf','properties','sql','graphql','gql',
+  'proto','tf','hcl','nix','makefile','mk','cmake','gradle','dockerfile',
+  'csv','tsv','log','env','gitignore','gitattributes','editorconfig','nvmrc',
+  'npmrc','prettierrc','babelrc','eslintrc','lock','sum','mod',
+]);
+
+const IMAGE_EXTS = new Set([
+  'png','jpg','jpeg','gif','svg','webp','ico','bmp','avif','tiff','tif','apng',
+]);
+
+let fileMap = new Map();
+let currentBlobURL = null;
+let selectedEl = null;
+
+function fmtSize(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  return (b/1048576).toFixed(1) + ' MB';
+}
+
+function extOf(name) {
+  const i = name.lastIndexOf('.');
+  return i >= 0 ? name.slice(i+1).toLowerCase() : '';
+}
+
+function iconFor(name, isDir) {
+  if (isDir) return '📁';
+  const e = extOf(name);
+  if (IMAGE_EXTS.has(e)) return '🖼️';
+  if (TEXT_EXTS.has(e))  return '📄';
+  return '📎';
+}
+
+function isText(mime, ext) {
+  if (mime) {
+    if (mime.startsWith('text/')) return true;
+    if (/^application\/(json|xml|javascript|x-sh|typescript)/.test(mime)) return true;
+  }
+  return TEXT_EXTS.has(ext);
+}
+
+function revokeBlob() {
+  if (currentBlobURL) { URL.revokeObjectURL(currentBlobURL); currentBlobURL = null; }
+}
+
+// ── tree building ──────────────────────────────────────────────────────────────
+function buildTree(files) {
+  const root = { children: new Map(), isDir: true };
+  let ignored = 0;
+
+  for (const file of files) {
+    const rel = file.webkitRelativePath;
+    if (!rel) continue;
+    const parts = rel.split('/');
+    if (parts.some(p => IGNORED_DIRS.has(p))) { ignored++; continue; }
+    const fname = parts[parts.length - 1];
+    if (!fname) { ignored++; continue; }
+
+    fileMap.set(rel, file);
+    let node = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const seg = parts[i];
+      if (!node.children.has(seg)) {
+        node.children.set(seg, {
+          name: seg, isDir: true, children: new Map(), expanded: (i === 0),
+        });
+      }
+      node = node.children.get(seg);
+    }
+    node.children.set(fname, { name: fname, isDir: false, path: rel });
+  }
+  return { root, ignored };
+}
+
+function sortedKids(node) {
+  const dirs = [], files = [];
+  for (const c of node.children.values()) (c.isDir ? dirs : files).push(c);
+  dirs.sort((a,b) => a.name.localeCompare(b.name));
+  files.sort((a,b) => a.name.localeCompare(b.name));
+  return [...dirs, ...files];
+}
+
+// ── tree rendering (lazy) ──────────────────────────────────────────────────────
+function renderChildren(treeNode, container, depth) {
+  for (const child of sortedKids(treeNode))
+    child.isDir ? renderDir(child, container, depth) : renderFile(child, container, depth);
+}
+
+function renderDir(node, container, depth) {
+  const indent = depth * 12 + 4;
+  const row = document.createElement('div');
+  row.className = 'tree-item';
+  row.style.paddingLeft = indent + 'px';
+
+  const tog = document.createElement('span'); tog.className = 'tree-toggle';
+  tog.textContent = node.expanded ? '▾' : '▸';
+  const ico = document.createElement('span'); ico.className = 'tree-icon'; ico.textContent = '📁';
+  const lbl = document.createElement('span'); lbl.className = 'tree-name';
+  lbl.textContent = node.name; lbl.title = node.name;
+  row.append(tog, ico, lbl);
+
+  const sub = document.createElement('div');
+  sub.style.display = node.expanded ? '' : 'none';
+
+  row.addEventListener('click', e => {
+    e.stopPropagation();
+    node.expanded = !node.expanded;
+    tog.textContent = node.expanded ? '▾' : '▸';
+    if (node.expanded) {
+      if (!sub.hasChildNodes()) renderChildren(node, sub, depth + 1);
+      sub.style.display = '';
+    } else {
+      sub.style.display = 'none';
+    }
+  });
+
+  if (node.expanded) renderChildren(node, sub, depth + 1);
+  container.append(row, sub);
+}
+
+function renderFile(node, container, depth) {
+  const indent = depth * 12 + 4;
+  const row = document.createElement('div');
+  row.className = 'tree-item';
+  row.style.paddingLeft = indent + 'px';
+  row.dataset.path = node.path;
+
+  const tog = document.createElement('span'); tog.className = 'tree-toggle';
+  const ico = document.createElement('span'); ico.className = 'tree-icon';
+  ico.textContent = iconFor(node.name, false);
+  const lbl = document.createElement('span'); lbl.className = 'tree-name';
+  lbl.textContent = node.name; lbl.title = node.path;
+  row.append(tog, ico, lbl);
+
+  row.addEventListener('click', () => {
+    if (selectedEl) selectedEl.classList.remove('selected');
+    selectedEl = row; row.classList.add('selected');
+    openFile(node.path);
+  });
+  container.appendChild(row);
+}
+
+// ── file preview ───────────────────────────────────────────────────────────────
+async function openFile(path) {
+  const file = fileMap.get(path);
+  if (!file) return;
+  revokeBlob();
+
+  const area   = document.getElementById('preview-area');
+  const info   = document.getElementById('file-info');
+  const notice = document.getElementById('truncated-notice');
+
+  area.innerHTML = '';
+  notice.style.display = 'none';
+  info.style.display = 'block';
+  info.textContent = path + '   |   ' + fmtSize(file.size) + '   |   ' + (file.type || '(unknown)');
+
+  const ext  = extOf(file.name);
+  const mime = file.type || '';
+
+  try {
+    if (mime.startsWith('image/') || (!mime && IMAGE_EXTS.has(ext))) {
+      const url = URL.createObjectURL(file); currentBlobURL = url;
+      const img = document.createElement('img');
+      img.className = 'preview-img'; img.src = url;
+      area.appendChild(img);
+
+    } else if (mime === 'application/pdf') {
+      const url = URL.createObjectURL(file); currentBlobURL = url;
+      const iframe = document.createElement('iframe');
+      iframe.className = 'preview-iframe'; iframe.src = url;
+      area.appendChild(iframe);
+
+    } else if (mime.startsWith('video/')) {
+      const url = URL.createObjectURL(file); currentBlobURL = url;
+      const v = document.createElement('video');
+      v.className = 'preview-video'; v.controls = true; v.src = url;
+      area.appendChild(v);
+
+    } else if (mime.startsWith('audio/')) {
+      const url = URL.createObjectURL(file); currentBlobURL = url;
+      const a = document.createElement('audio');
+      a.className = 'preview-audio'; a.controls = true; a.src = url;
+      area.appendChild(a);
+
+    } else if (isText(mime, ext)) {
+      const MAX = 2 * 1024 * 1024;
+      let text, truncated = false;
+      if (file.size > MAX) { text = await file.slice(0, MAX).text(); truncated = true; }
+      else                 { text = await file.text(); }
+      renderCode(area, text, ext);
+      if (truncated) {
+        notice.style.display = 'block';
+        notice.textContent = '⚠  檔案過大，僅顯示前 2 MB';
+      }
+
+    } else {
+      const d = document.createElement('div'); d.className = 'preview-unsupported';
+      d.innerHTML = '此檔案類型不支援預覽<br><br>名稱：' + H(file.name) +
+                    '<br>大小：' + fmtSize(file.size) + '<br>類型：' + (mime || '未知');
+      area.appendChild(d);
+    }
+  } catch (err) {
+    const d = document.createElement('div'); d.className = 'preview-error';
+    d.textContent = '讀取失敗：' + err.message;
+    area.appendChild(d);
+  }
+}
+
+function H(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function renderCode(container, text, ext) {
+  const lineCount = (text.match(/\n/g) || []).length + 1;
+  const nums = []; for (let i = 1; i <= lineCount; i++) nums.push(i);
+
+  const wrap = document.createElement('div'); wrap.className = 'code-wrap';
+  const ln   = document.createElement('div'); ln.className = 'line-nums';
+  const cb   = document.createElement('div'); cb.className = 'code-body';
+
+  ln.textContent = nums.join('\n');
+
+  const hl = Syntax.highlight(text, ext);
+  if (hl !== null) {
+    cb.innerHTML = hl;
+  } else {
+    cb.textContent = text;
+  }
+
+  wrap.append(ln, cb);
+  container.appendChild(wrap);
+}
+
+// ── entry point ────────────────────────────────────────────────────────────────
+document.getElementById('open-btn').addEventListener('click', () => {
+  document.getElementById('file-input').click();
+});
+
+document.getElementById('file-input').addEventListener('change', function () {
+  const files = Array.from(this.files);
+  if (!files.length) return;
+
+  fileMap.clear(); revokeBlob();
+  if (selectedEl) { selectedEl.classList.remove('selected'); selectedEl = null; }
+
+  const { root, ignored } = buildTree(files);
+
+  const rootName = (files[0].webkitRelativePath || '').split('/')[0] || '(資料夾)';
+  document.getElementById('folder-name').textContent = rootName;
+  document.getElementById('file-count').textContent = fileMap.size.toLocaleString() + ' 個檔案';
+  document.getElementById('ignored-notice').textContent =
+    ignored > 0 ? `（已略過 ${ignored.toLocaleString()} 個，含 node_modules 等）` : '';
+
+  const treeRoot = document.getElementById('tree-root');
+  treeRoot.innerHTML = '';
+  renderChildren(root, treeRoot, 0);
+
+  const area = document.getElementById('preview-area');
+  area.innerHTML = '';
+  const empty = document.createElement('div');
+  empty.id = 'empty-state'; empty.textContent = '點擊左側檔案以預覽';
+  area.appendChild(empty);
+  document.getElementById('file-info').style.display = 'none';
+  document.getElementById('truncated-notice').style.display = 'none';
+  this.value = '';
+});
+</script>
+</body>
+</html>
