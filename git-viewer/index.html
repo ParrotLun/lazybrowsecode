@@ -1,0 +1,1386 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Code Viewer + Git History</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: #1e1e1e; color: #d4d4d4;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px; overflow: hidden; }
+body { display: flex; flex-direction: column; }
+
+/* ── Toolbar ── */
+#toolbar { background: #323233; border-bottom: 1px solid #3c3c3c;
+  padding: 0 12px; min-height: 36px; display: flex; align-items: center;
+  gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
+.btn { background: #0e639c; color: #fff; border: none; padding: 4px 12px;
+  cursor: pointer; font-size: 12px; white-space: nowrap; flex-shrink: 0; }
+.btn:hover { background: #1177bb; }
+.btn.secondary { background: #3c3c3c; color: #ccc; border: 1px solid #555; }
+.btn.secondary:hover { background: #4a4a4a; }
+.btn.active { background: #16825d; }
+.btn.active:hover { background: #1a9b6e; }
+#tb-sep { width: 1px; height: 20px; background: #3c3c3c; flex-shrink: 0; }
+#folder-name { color: #ccc; font-size: 12px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; flex: 1; min-width: 0; }
+#ignored-notice { color: #858585; font-size: 11px; white-space: nowrap; flex-shrink: 0; }
+#file-count { color: #858585; font-size: 11px; white-space: nowrap; flex-shrink: 0; }
+#git-btn { }
+#git-btn:disabled { background: #3c3c3c; color: #666; cursor: not-allowed; }
+
+/* ── Git hint ── */
+#git-hint { background: #1a2a3a; border-bottom: 1px solid #2a4a6a;
+  padding: 6px 14px; font-size: 12px; color: #9cdcfe; flex-shrink: 0; }
+#git-hint strong { color: #d7ba7d; }
+#git-hint code { color: #ce9178; }
+#git-hint kbd { background: #3c3c3c; border: 1px solid #555; border-radius: 3px;
+  padding: 1px 5px; font-size: 11px; color: #d4d4d4; font-family: ui-monospace, monospace; }
+
+/* ── Layout ── */
+#main { display: flex; flex: 1; overflow: hidden; min-height: 0; }
+
+/* ── Sidebar ── */
+#sidebar { width: 280px; min-width: 280px; background: #252526;
+  border-right: 1px solid #3c3c3c; overflow-y: auto; overflow-x: auto; flex-shrink: 0; }
+
+/* ── Tree ── */
+.tree-item { display: flex; align-items: center; height: 22px;
+  cursor: pointer; user-select: none; white-space: nowrap; }
+.tree-item:hover { background: #2a2d2e; }
+.tree-item.selected { background: #094771; }
+.tree-toggle { width: 16px; min-width: 16px; text-align: center; font-size: 10px; color: #858585; }
+.tree-icon { margin-right: 4px; font-size: 14px; line-height: 1; }
+.tree-name { overflow: hidden; text-overflow: ellipsis; color: #d4d4d4; padding-right: 8px; }
+
+/* ── Content ── */
+#content { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+#file-info { display: none; background: #2d2d30; border-bottom: 1px solid #3c3c3c;
+  padding: 3px 12px; font-size: 11px; color: #858585; flex-shrink: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#preview-area { flex: 1; overflow: auto; position: relative; min-height: 0; }
+#empty-state { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  color: #858585; font-size: 14px; text-align: center; pointer-events: none; white-space: nowrap; }
+#truncated-notice { display: none; background: #2d2d30; border-top: 1px solid #3c3c3c;
+  padding: 5px 12px; font-size: 11px; color: #d7ba7d; flex-shrink: 0; }
+
+/* ── Code view ── */
+.code-wrap { display: flex; font-family: ui-monospace, Menlo, Consolas, "Courier New", monospace;
+  font-size: 13px; line-height: 1.5; min-height: 100%; }
+.line-nums { padding: 8px 10px 8px 8px; color: #858585; background: #1e1e1e;
+  border-right: 1px solid #3c3c3c; user-select: none; text-align: right;
+  min-width: 48px; flex-shrink: 0; white-space: pre; line-height: 1.5; }
+.code-body { padding: 8px 12px; white-space: pre; flex: 1; color: #d4d4d4;
+  overflow-x: visible; line-height: 1.5; tab-size: 2; }
+
+/* ── Media ── */
+.preview-img { max-width: 100%; display: block; margin: 16px; }
+.preview-iframe { width: 100%; height: 100%; border: none; display: block; }
+.preview-video, .preview-audio { display: block; margin: 16px; max-width: calc(100% - 32px); }
+.preview-unsupported { padding: 24px; color: #858585; line-height: 1.8; }
+.preview-error { padding: 24px; color: #f44747; line-height: 1.8; }
+
+/* ── Syntax highlight colours (VSCode Dark+) ── */
+.hl-kw   { color: #569cd6; }
+.hl-str  { color: #ce9178; }
+.hl-cmt  { color: #6a9955; }
+.hl-num  { color: #b5cea8; }
+.hl-fn   { color: #dcdcaa; }
+.hl-cls  { color: #4ec9b0; }
+.hl-prop { color: #9cdcfe; }
+.hl-pp   { color: #c586c0; }
+.hl-tag  { color: #569cd6; }
+.hl-attr { color: #9cdcfe; }
+.hl-sel  { color: #d7ba7d; }
+
+/* ── Toast ── */
+#toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: #16825d; color: #fff; padding: 8px 18px; font-size: 13px;
+  border-radius: 4px; pointer-events: none; opacity: 0;
+  transition: opacity 0.3s; z-index: 9999; white-space: nowrap; }
+#toast.show { opacity: 1; }
+
+/* ── Git History panel ── */
+#git-panel { display: none; flex: 1; flex-direction: column; overflow: hidden; min-height: 0; }
+#git-panel.visible { display: flex; }
+#git-header { background: #2d2d30; border-bottom: 1px solid #3c3c3c;
+  padding: 4px 12px; font-size: 11px; color: #858585; flex-shrink: 0; }
+#git-body { display: flex; flex: 1; overflow: hidden; min-height: 0; }
+#git-list { width: 300px; min-width: 200px; flex-shrink: 0; overflow-y: auto;
+  padding: 4px 0; border-right: 1px solid #3c3c3c; }
+
+/* ── Commit detail panel ── */
+#commit-detail { display: none; flex: 1; flex-direction: column; overflow: hidden; min-width: 0; }
+#commit-detail.open { display: flex; }
+#cd-topbar { background: #252526; border-bottom: 1px solid #3c3c3c; padding: 6px 12px;
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+#cd-close { background: none; border: 1px solid #555; color: #ccc; padding: 2px 8px;
+  cursor: pointer; font-size: 11px; }
+#cd-close:hover { background: #3c3c3c; }
+#cd-sha-label { font-family: ui-monospace, Menlo, Consolas, "Courier New", monospace;
+  font-size: 12px; color: #d7ba7d; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#cd-content { flex: 1; overflow-y: auto; padding: 14px 16px; }
+
+.cd-section { margin-bottom: 16px; }
+.cd-section-title { font-size: 11px; color: #858585; text-transform: uppercase;
+  letter-spacing: 0.05em; margin-bottom: 6px; border-bottom: 1px solid #3c3c3c; padding-bottom: 4px; }
+.cd-row { display: flex; gap: 8px; margin-bottom: 4px; font-size: 12px; }
+.cd-key { color: #858585; min-width: 80px; flex-shrink: 0; }
+.cd-val { color: #d4d4d4; word-break: break-all; }
+.cd-val.mono { font-family: ui-monospace, Menlo, Consolas, "Courier New", monospace; color: #d7ba7d; }
+.cd-msg-full { white-space: pre-wrap; font-size: 13px; color: #d4d4d4; line-height: 1.6;
+  background: #252526; padding: 8px 10px; border-left: 2px solid #094771; }
+
+/* ── Changed files list ── */
+.cf-item { display: flex; align-items: center; gap: 8px; padding: 4px 8px;
+  cursor: pointer; border-radius: 2px; font-size: 12px; }
+.cf-item:hover { background: #2a2d2e; }
+.cf-item.active { background: #094771; }
+.cf-status { font-family: ui-monospace, Menlo, Consolas, "Courier New", monospace;
+  font-size: 11px; font-weight: bold; min-width: 14px; }
+.cf-status.A { color: #4ec9b0; }
+.cf-status.M { color: #d7ba7d; }
+.cf-status.D { color: #f44747; }
+.cf-path { color: #d4d4d4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cf-unavail { font-size: 12px; color: #858585; padding: 6px 8px; font-style: italic; }
+
+/* ── Diff view ── */
+.diff-wrap { font-family: ui-monospace, Menlo, Consolas, "Courier New", monospace;
+  font-size: 12px; line-height: 1.5; background: #1e1e1e; border: 1px solid #3c3c3c;
+  overflow-x: auto; margin-top: 8px; }
+.diff-file-header { background: #252526; color: #9cdcfe; padding: 5px 10px;
+  border-bottom: 1px solid #3c3c3c; font-size: 11px; }
+.diff-hunk { border-top: 1px solid #2a2a2a; }
+.diff-hunk-header { background: #0d2b3e; color: #569cd6; padding: 2px 10px; font-size: 11px; }
+.diff-line { display: flex; min-width: 0; }
+.diff-line:hover { filter: brightness(1.15); }
+.diff-add  { background: #0c2a1a; }
+.diff-del  { background: #2a0e0e; }
+.diff-ctx  { }
+.diff-lnum { color: #555; min-width: 38px; padding: 0 8px; text-align: right;
+  user-select: none; flex-shrink: 0; border-right: 1px solid #2a2a2a; }
+.diff-prefix { padding: 0 6px; flex-shrink: 0; }
+.diff-add .diff-prefix { color: #4ec9b0; }
+.diff-del .diff-prefix { color: #f44747; }
+.diff-text { white-space: pre; color: #d4d4d4; flex: 1; padding-right: 8px; overflow: hidden; }
+.diff-add .diff-text { color: #b5e7c8; }
+.diff-del .diff-text { color: #e7b5b5; }
+
+.commit-row { display: flex; align-items: flex-start; padding: 8px 14px;
+  border-bottom: 1px solid #2a2a2a; gap: 10px; cursor: pointer; }
+.commit-row:hover { background: #2a2d2e; }
+.commit-row.selected { background: #094771; }
+
+.c-sha { font-family: ui-monospace, Menlo, Consolas, "Courier New", monospace;
+  font-size: 12px; color: #d7ba7d; flex-shrink: 0; min-width: 58px; padding-top: 1px; }
+.c-main { flex: 1; min-width: 0; }
+.c-msg { color: #d4d4d4; font-size: 13px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; margin-bottom: 3px; }
+.c-meta { font-size: 11px; color: #858585; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.c-branch { background: #094771; color: #9cdcfe; padding: 1px 6px;
+  font-size: 10px; font-family: ui-monospace, Menlo, Consolas, "Courier New", monospace; }
+.c-time { cursor: default; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <button class="btn" id="open-btn">選擇專案資料夾</button>
+  <input type="file" id="file-input" webkitdirectory multiple style="display:none">
+  <input type="file" id="git-input" webkitdirectory multiple style="display:none">
+  <div id="tb-sep"></div>
+  <span id="folder-name">尚未選擇資料夾</span>
+  <span id="ignored-notice"></span>
+  <button class="btn" id="git-btn" disabled title="選擇包含 .git 的資料夾後即可使用">Git History</button>
+  <span id="file-count"></span>
+</div>
+
+<div id="git-hint" style="display:none">
+  <strong>未偵測到 Git 紀錄。</strong>
+  請重新選擇資料夾並顯示隱藏檔案，讓瀏覽器讀取 <code>.git</code>：
+  <span id="hint-mac" style="display:none"><kbd>Cmd + Shift + .</kbd>（macOS Finder）</span>
+  <span id="hint-win" style="display:none">「顯示 → 隱藏的項目」（Windows 檔案總管）</span>
+  <span id="hint-other" style="display:none"><kbd>Ctrl + H</kbd>（Linux 檔案選擇器）</span>
+  — 或 — <button class="btn secondary" id="open-git-btn" style="padding:2px 8px;font-size:11px">手動選取 .git 資料夾</button>
+</div>
+
+<div id="toast"></div>
+<div id="main">
+  <div id="sidebar"><div id="tree-root"></div></div>
+  <div id="content">
+    <div id="file-info"></div>
+    <div id="preview-area">
+      <div id="empty-state">請點擊左上角「選擇專案資料夾」開始瀏覽</div>
+    </div>
+    <div id="truncated-notice"></div>
+    <div id="git-panel">
+      <div id="git-header">共 0 筆紀錄</div>
+      <div id="git-body">
+        <div id="git-list"></div>
+        <div id="commit-detail">
+          <div id="cd-topbar">
+            <button id="cd-close">← 返回列表</button>
+            <span id="cd-sha-label"></span>
+          </div>
+          <div id="cd-content"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SYNTAX HIGHLIGHTER
+// ═══════════════════════════════════════════════════════════════════════════════
+const Syntax = (() => {
+
+  function H(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function S(c, s) { return '<span class="hl-' + c + '">' + H(s) + '</span>'; }
+
+  function langOf(ext) {
+    return ({
+      js:'js',jsx:'js',mjs:'js',cjs:'js',ts:'js',tsx:'js',mts:'js',cts:'js',
+      py:'py',pyw:'py',pyi:'py',
+      go:'go',
+      rs:'rust',
+      java:'java',kt:'java',kts:'java',scala:'java',groovy:'java',
+      c:'c',cpp:'c',cc:'c',cxx:'c',h:'c',hpp:'c',hxx:'c',
+      cs:'cs',
+      php:'php',phtml:'php',
+      rb:'rb',rake:'rb',
+      sh:'sh',bash:'sh',zsh:'sh',fish:'sh',ps1:'sh',
+      swift:'swift',dart:'dart',
+      lua:'lua',
+      r:'r',
+      ex:'elixir',exs:'elixir',
+      html:'html',htm:'html',xml:'html',svg:'html',xhtml:'html',vue:'html',svelte:'html',
+      css:'css',scss:'css',sass:'css',less:'css',
+      json:'json',jsonc:'json',json5:'json',
+      md:'md',markdown:'md',
+      sql:'sql',
+      yaml:'yaml',yml:'yaml',
+      toml:'toml',
+    })[ext] || null;
+  }
+
+  function kset(s) { return new Set(s.trim().split(/\s+/)); }
+
+  const KW = {
+    js: kset(`abstract arguments as async await boolean break byte case catch char class const
+      continue debugger default delete do double else enum eval export extends false final
+      finally float for from function get goto if implements import in instanceof int interface
+      let long native new null of package private protected public return set short static
+      super switch synchronized this throw throws transient true try type typeof undefined
+      var void volatile while with yield keyof readonly declare namespace module any never
+      unknown object string number boolean symbol bigint`),
+
+    py: kset(`False None True and as assert async await break class continue def del elif else
+      except finally for from global if import in is lambda nonlocal not or pass raise
+      return try while with yield self cls super print len range type input int float str
+      list dict set tuple bool`),
+
+    go: kset(`break case chan const continue default defer else fallthrough for func go goto
+      if import interface map package range return select struct switch type var nil true false
+      iota error string int int8 int16 int32 int64 uint uint8 uint16 uint32 uint64 uintptr
+      float32 float64 complex64 complex128 byte rune bool make len cap append copy delete
+      close new panic recover print println`),
+
+    rust: kset(`as async await break const continue crate dyn else enum extern false fn for if
+      impl in let loop match mod move mut pub ref return self Self static struct super trait
+      true type union unsafe use where while i8 i16 i32 i64 i128 isize u8 u16 u32 u64 u128
+      usize f32 f64 bool char str String Vec HashMap HashSet Option Result Box Arc Mutex
+      None Some Ok Err`),
+
+    java: kset(`abstract assert boolean break byte case catch char class const continue default
+      do double else enum extends final finally float for goto if implements import instanceof
+      int interface long native new null package private protected public return short static
+      strictfp super switch synchronized this throw throws transient true false try var void
+      volatile while record sealed permits yields`),
+
+    c: kset(`auto break case char const continue default do double else enum extern float for
+      goto if inline int long register restrict return short signed sizeof static struct
+      switch typedef union unsigned void volatile while NULL nullptr true false`),
+
+    cs: kset(`abstract as base bool break byte case catch char checked class const continue
+      decimal default delegate do double else enum event explicit extern false finally fixed
+      float for foreach goto if implicit in int interface internal is lock long namespace new
+      null object operator out override params private protected public readonly ref return
+      sbyte sealed short sizeof stackalloc static string struct switch this throw true try
+      typeof uint ulong unchecked unsafe ushort using virtual void volatile while var async
+      await dynamic`),
+
+    php: kset(`abstract and array as break callable case catch class clone const continue declare
+      default do echo else elseif empty enddeclare endfor endforeach endif endswitch endwhile
+      eval exit extends final finally fn for foreach function global goto if implements include
+      include_once instanceof insteadof interface isset list match namespace new null or print
+      private protected public require require_once return static switch throw trait try unset
+      use var while xor yield true false`),
+
+    rb: kset(`__ENCODING__ __LINE__ __FILE__ BEGIN END alias and begin break case class def
+      defined do else elsif end ensure false for if in module next nil not or redo rescue
+      retry return self super then true undef unless until when while yield`),
+
+    sh: kset(`if then else elif fi for do done while until case esac function in return export
+      local readonly declare set unset echo printf read source alias break continue exit
+      trap true false select`),
+
+    swift: kset(`associatedtype class deinit enum extension fileprivate func import init inout
+      internal let open operator precedencegroup private protocol public rethrows return static
+      struct subscript typealias var break case continue default defer do else fallthrough for
+      guard if in repeat return throw try where while as Any catch false is nil self Self
+      super true`),
+
+    dart: kset(`abstract as assert async await break case catch class const continue covariant
+      default deferred do dynamic else enum export extends extension external factory false
+      final finally for Function get hide if implements import in interface is late library
+      mixin new null on operator part required rethrow return set show static super switch
+      sync this throw true try typedef var void while with yield`),
+
+    lua: kset(`and break do else elseif end false for function goto if in local nil not or
+      repeat return then true until while`),
+
+    r: kset(`if else for while repeat function return next break TRUE FALSE NULL Inf NaN NA in`),
+
+    elixir: kset(`after alias and case catch cond def defcallback defdelegate defexception
+      defimpl defmacro defmacrop defmodule defoverridable defp defprotocol defrecord defstruct
+      do else end fn for if import in not or quote raise receive require rescue use when with
+      true false nil`),
+
+    sql: kset(`SELECT FROM WHERE INSERT INTO UPDATE DELETE CREATE DROP TABLE INDEX VIEW ALTER
+      ADD COLUMN PRIMARY KEY FOREIGN REFERENCES UNIQUE NOT NULL DEFAULT AND OR IS IN LIKE
+      BETWEEN AS ON JOIN INNER LEFT RIGHT FULL OUTER CROSS GROUP BY HAVING ORDER LIMIT
+      OFFSET DISTINCT UNION ALL EXISTS CASE WHEN THEN ELSE END BEGIN COMMIT ROLLBACK
+      TRANSACTION DATABASE SCHEMA TRIGGER PROCEDURE FUNCTION IF WITH VALUES SET RETURNING
+      DECLARE VARCHAR INT INTEGER BOOLEAN TEXT FLOAT DOUBLE REAL NUMERIC TIMESTAMP DATE
+      TIME CHAR BIGINT SERIAL`),
+  };
+
+  function makeRe(opts) {
+    const o = Object.assign({ blockCmt:true, lineCmt:'//', hashCmt:false, tripleQ:false }, opts);
+    const p = [];
+    if (o.blockCmt) {
+      if (o.lineCmt === '--') p.push('(?<blkCmt>--\\[\\[[\\s\\S]*?\\]\\])');
+      else                    p.push('(?<blkCmt>\\/\\*[\\s\\S]*?\\*\\/)');
+    }
+    if (o.lineCmt) {
+      const e = o.lineCmt.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+      p.push(`(?<lnCmt>${e}[^\\n]*)`);
+    }
+    if (o.hashCmt) p.push('(?<hashCmt>#[^\\n]*)');
+    if (o.tripleQ) {
+      p.push('(?<triD>"""[\\s\\S]*?""")');
+      p.push("(?<triS>'''[\\s\\S]*?''')");
+    }
+    p.push('(?<tmpl>`[\\s\\S]*?`)');
+    p.push('(?<dStr>"(?:[^"\\\\\\n]|\\\\.)*")');
+    p.push("(?<sStr>'(?:[^'\\\\\\n]|\\\\.)*')");
+    p.push('(?<num>\\b0[xX][0-9a-fA-F][0-9a-fA-F_]*[nN]?\\b'
+          +'|\\b0[bB][01][01_]*[nN]?\\b'
+          +'|\\b0[oO][0-7][0-7_]*[nN]?\\b'
+          +'|\\b\\d[\\d_]*\\.?[\\d_]*(?:[eE][+-]?[\\d_]+)?[fFdDlLuUnm]?\\b)');
+    p.push('(?<deco>@[A-Za-z_]\\w*)');
+    p.push('(?<id>[A-Za-z_$][\\w$]*)');
+    return new RegExp(p.join('|'), 'g');
+  }
+
+  const RE_CACHE = {};
+  const RE_OPTS = {
+    js:     { blockCmt:true,  lineCmt:'//', hashCmt:false, tripleQ:false },
+    py:     { blockCmt:false, lineCmt:null, hashCmt:true,  tripleQ:true  },
+    go:     { blockCmt:true,  lineCmt:'//', hashCmt:false, tripleQ:false },
+    rust:   { blockCmt:true,  lineCmt:'//', hashCmt:false, tripleQ:false },
+    java:   { blockCmt:true,  lineCmt:'//', hashCmt:false, tripleQ:false },
+    c:      { blockCmt:true,  lineCmt:'//', hashCmt:true,  tripleQ:false },
+    cs:     { blockCmt:true,  lineCmt:'//', hashCmt:false, tripleQ:false },
+    php:    { blockCmt:true,  lineCmt:'//', hashCmt:true,  tripleQ:false },
+    rb:     { blockCmt:false, lineCmt:null, hashCmt:true,  tripleQ:false },
+    sh:     { blockCmt:false, lineCmt:null, hashCmt:true,  tripleQ:false },
+    swift:  { blockCmt:true,  lineCmt:'//', hashCmt:false, tripleQ:false },
+    dart:   { blockCmt:true,  lineCmt:'//', hashCmt:false, tripleQ:false },
+    lua:    { blockCmt:true,  lineCmt:'--', hashCmt:false, tripleQ:false },
+    r:      { blockCmt:false, lineCmt:null, hashCmt:true,  tripleQ:false },
+    elixir: { blockCmt:false, lineCmt:null, hashCmt:true,  tripleQ:false },
+  };
+
+  const PASCAL = /^[A-Z][A-Za-z0-9]*$/;
+
+  function hlGeneric(code, lang) {
+    const kwSet = KW[lang] || new Set();
+    if (!RE_CACHE[lang]) RE_CACHE[lang] = makeRe(RE_OPTS[lang] || {});
+    const re = RE_CACHE[lang];
+    let out = '', last = 0;
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(code)) !== null) {
+      if (m.index > last) out += H(code.slice(last, m.index));
+      const g = m.groups, raw = m[0];
+      if      (g.blkCmt  !== undefined) out += S('cmt', raw);
+      else if (g.lnCmt   !== undefined) out += S('cmt', raw);
+      else if (g.hashCmt !== undefined) out += S('cmt', raw);
+      else if (g.triD    !== undefined) out += S('str', raw);
+      else if (g.triS    !== undefined) out += S('str', raw);
+      else if (g.tmpl    !== undefined) out += S('str', raw);
+      else if (g.dStr    !== undefined) out += S('str', raw);
+      else if (g.sStr    !== undefined) out += S('str', raw);
+      else if (g.num     !== undefined) out += S('num', raw);
+      else if (g.deco    !== undefined) out += S('pp',  raw);
+      else if (g.id      !== undefined) {
+        if (kwSet.has(raw))           out += S('kw',  raw);
+        else if (PASCAL.test(raw))    out += S('cls', raw);
+        else out += (code[m.index + raw.length] === '(') ? S('fn', raw) : H(raw);
+      }
+      last = m.index + raw.length;
+    }
+    if (last < code.length) out += H(code.slice(last));
+    return out;
+  }
+
+  function hlHTML(code) {
+    const re = /(?<cmt><!--[\s\S]*?-->)|(?<cdata><!\[CDATA\[[\s\S]*?\]\]>)|(?<doctype><!DOCTYPE[^>]*>i?)|(?<tag><\/?[A-Za-z][A-Za-z0-9:._-]*)|(?<close>>)|(?<aval>"[^"]*"|'[^']*')|(?<aname>[A-Za-z_:][A-Za-z0-9_.:-]*(?=\s*[=/>]|\s+[A-Za-z]))|(?<ent>&(?:#\d+|#x[0-9a-fA-F]+|[A-Za-z]+);)/g;
+    let out = '', last = 0, inTag = false, m;
+    re.lastIndex = 0;
+    while ((m = re.exec(code)) !== null) {
+      if (m.index > last) out += H(code.slice(last, m.index));
+      const g = m.groups, raw = m[0];
+      if      (g.cmt     !== undefined) out += S('cmt',  raw);
+      else if (g.cdata   !== undefined) out += S('str',  raw);
+      else if (g.doctype !== undefined) out += S('kw',   raw);
+      else if (g.tag     !== undefined) { out += S('tag', raw); inTag = true; }
+      else if (g.close   !== undefined) { out += H(raw);         inTag = false; }
+      else if (g.aval    !== undefined) out += S('str',  raw);
+      else if (g.aname   !== undefined) out += inTag ? S('attr', raw) : H(raw);
+      else if (g.ent     !== undefined) out += S('num',  raw);
+      else out += H(raw);
+      last = m.index + raw.length;
+    }
+    if (last < code.length) out += H(code.slice(last));
+    return out;
+  }
+
+  function hlCSS(code) {
+    const re = /(?<cmt>\/\*[\s\S]*?\*\/)|(?<at>@[A-Za-z][\w-]*)|(?<str>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(?<hex>#[0-9a-fA-F]{3,8}(?=[^A-Za-z]|$))|(?<num>-?(?:\.\d+|\d+\.?\d*)(?:[a-zA-Z%]+)?)|(?<prop>[a-z][a-z-]*(?=\s*:))|(?<pseudo>::?[A-Za-z][A-Za-z-]*)|(?<varref>var\(--[^)]*\))|(?<sel>[.#]?[A-Za-z][A-Za-z0-9_-]*(?=[^{};]*\{))/g;
+    let out = '', last = 0, m;
+    re.lastIndex = 0;
+    while ((m = re.exec(code)) !== null) {
+      if (m.index > last) out += H(code.slice(last, m.index));
+      const g = m.groups, raw = m[0];
+      if      (g.cmt    !== undefined) out += S('cmt',  raw);
+      else if (g.at     !== undefined) out += S('pp',   raw);
+      else if (g.str    !== undefined) out += S('str',  raw);
+      else if (g.hex    !== undefined) out += S('num',  raw);
+      else if (g.num    !== undefined) out += S('num',  raw);
+      else if (g.prop   !== undefined) out += S('prop', raw);
+      else if (g.pseudo !== undefined) out += S('kw',   raw);
+      else if (g.varref !== undefined) out += S('prop', raw);
+      else if (g.sel    !== undefined) out += S('sel',  raw);
+      else out += H(raw);
+      last = m.index + raw.length;
+    }
+    if (last < code.length) out += H(code.slice(last));
+    return out;
+  }
+
+  function hlJSON(code) {
+    const re = /(?<key>"(?:[^"\\]|\\.)*"(?=\s*:))|(?<str>"(?:[^"\\]|\\.)*")|(?<num>-?(?:\.\d+|\d+\.?\d*)(?:[eE][+-]?\d+)?)|(?<kw>true|false|null)/g;
+    let out = '', last = 0, m;
+    re.lastIndex = 0;
+    while ((m = re.exec(code)) !== null) {
+      if (m.index > last) out += H(code.slice(last, m.index));
+      const g = m.groups, raw = m[0];
+      if      (g.key !== undefined) out += S('prop', raw);
+      else if (g.str !== undefined) out += S('str',  raw);
+      else if (g.num !== undefined) out += S('num',  raw);
+      else if (g.kw  !== undefined) out += S('kw',   raw);
+      else out += H(raw);
+      last = m.index + raw.length;
+    }
+    if (last < code.length) out += H(code.slice(last));
+    return out;
+  }
+
+  function hlYAMLValue(v) {
+    if (!v) return '';
+    const ci = v.search(/\s#/);
+    let main = v, cmt = '';
+    if (ci >= 0) { main = v.slice(0, ci); cmt = v.slice(ci); }
+    let out;
+    if (/^"(?:[^"\\]|\\.)*"$/.test(main) || /^'(?:[^'\\]|\\.)*'$/.test(main)) out = S('str', main);
+    else if (/^(true|false|null|~|yes|no|on|off)$/i.test(main.trim()))         out = S('kw',  main);
+    else if (/^-?[\d.]+$/.test(main.trim()))                                    out = S('num', main);
+    else out = H(main);
+    if (cmt) out += S('cmt', cmt);
+    return out;
+  }
+
+  function hlYAML(code) {
+    return code.split('\n').map(line => {
+      const t = line.trimStart();
+      if (t.startsWith('#')) return S('cmt', line);
+      if (/^---/.test(t) || /^\.\.\./.test(t)) return S('kw', line);
+      const km = line.match(/^(\s*)([\w'"!*&][^:]*?)(\s*:\s?)(.*)$/);
+      if (km) return H(km[1]) + S('prop', km[2]) + H(km[3]) + hlYAMLValue(km[4]);
+      return H(line);
+    }).join('\n');
+  }
+
+  function hlTOML(code) {
+    return code.split('\n').map(line => {
+      const t = line.trimStart();
+      if (t.startsWith('#')) return S('cmt', line);
+      if (/^\[/.test(t))    return S('sel', line);
+      const m = line.match(/^(\s*)([\w.-]+)(\s*=\s*)(.*)/);
+      if (m) {
+        const [, ind, key, eq, val] = m;
+        let vout = '';
+        const vRe = /("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(true|false)|(#[^\n]*)|(-?[\d.]+(?:[eE][+-]?\d+)?)/g;
+        let vLast = 0, vm;
+        vRe.lastIndex = 0;
+        while ((vm = vRe.exec(val)) !== null) {
+          if (vm.index > vLast) vout += H(val.slice(vLast, vm.index));
+          if      (vm[1]) vout += S('str', vm[1]);
+          else if (vm[2]) vout += S('kw',  vm[2]);
+          else if (vm[3]) vout += S('cmt', vm[3]);
+          else if (vm[4]) vout += S('num', vm[4]);
+          vLast = vm.index + vm[0].length;
+        }
+        vout += H(val.slice(vLast));
+        return H(ind) + S('prop', key) + H(eq) + vout;
+      }
+      return H(line);
+    }).join('\n');
+  }
+
+  function hlMDInline(text) {
+    const re = /(?<code>`[^`]+`)|(?<bold>\*\*[^*\n]+\*\*|__[^_\n]+__)|(?<ital>\*[^*\n]+\*|_[^_\n]+_)|(?<link>\[[^\]\n]*\]\([^)\n]*\))/g;
+    let out = '', last = 0, m;
+    re.lastIndex = 0;
+    while ((m = re.exec(text)) !== null) {
+      if (m.index > last) out += H(text.slice(last, m.index));
+      const g = m.groups, raw = m[0];
+      if      (g.code) out += S('str', raw);
+      else if (g.bold) out += S('kw',  raw);
+      else if (g.ital) out += S('fn',  raw);
+      else if (g.link) out += S('fn',  raw);
+      else out += H(raw);
+      last = m.index + raw.length;
+    }
+    out += H(text.slice(last));
+    return out;
+  }
+
+  function hlMD(code) {
+    let fence = false;
+    return code.split('\n').map(line => {
+      if (/^(`{3,}|~{3,})/.test(line)) { fence = !fence; return S('cmt', line); }
+      if (fence) return H(line);
+      if (/^#{1,6}\s/.test(line)) return S('kw', line);
+      if (/^[-*_]{3,}\s*$/.test(line)) return S('cmt', line);
+      if (/^>/.test(line)) return S('cmt', line);
+      return hlMDInline(line);
+    }).join('\n');
+  }
+
+  function hlSQL(code) {
+    const kwSet = KW.sql;
+    const re = /(?<lnCmt>--[^\n]*)|(?<blkCmt>\/\*[\s\S]*?\*\/)|(?<str>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(?<num>\b\d+\.?\d*\b)|(?<id>[A-Za-z_][A-Za-z0-9_]*)/g;
+    let out = '', last = 0, m;
+    re.lastIndex = 0;
+    while ((m = re.exec(code)) !== null) {
+      if (m.index > last) out += H(code.slice(last, m.index));
+      const g = m.groups, raw = m[0];
+      if      (g.lnCmt  !== undefined) out += S('cmt', raw);
+      else if (g.blkCmt !== undefined) out += S('cmt', raw);
+      else if (g.str    !== undefined) out += S('str', raw);
+      else if (g.num    !== undefined) out += S('num', raw);
+      else if (g.id     !== undefined) out += kwSet.has(raw.toUpperCase()) ? S('kw', raw) : H(raw);
+      else out += H(raw);
+      last = m.index + raw.length;
+    }
+    if (last < code.length) out += H(code.slice(last));
+    return out;
+  }
+
+  const MAX = 400 * 1024;
+
+  function highlight(code, ext) {
+    if (!ext || code.length > MAX) return null;
+    const lang = langOf(ext);
+    if (!lang) return null;
+    try {
+      if (lang === 'html')                          return hlHTML(code);
+      if (lang === 'css')                           return hlCSS(code);
+      if (lang === 'json')                          return hlJSON(code);
+      if (lang === 'yaml')                          return hlYAML(code);
+      if (lang === 'toml')                          return hlTOML(code);
+      if (lang === 'md')                            return hlMD(code);
+      if (lang === 'sql')                           return hlSQL(code);
+      if (RE_OPTS[lang] !== undefined || KW[lang])  return hlGeneric(code, lang);
+      return null;
+    } catch (e) { return null; }
+  }
+
+  return { highlight };
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  MAIN APP
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const IGNORED_DIRS = new Set([
+  // NOTE: .git is intentionally NOT here — Phase 2 auto-routes .git files to gitFileMap
+  'node_modules','dist','build','.next','.cache',
+  '__pycache__','.venv','venv','.idea','.vscode','target','.DS_Store',
+]);
+
+const TEXT_EXTS = new Set([
+  'txt','md','markdown','json','jsonc','json5','js','jsx','mjs','cjs','ts','tsx',
+  'mts','cts','py','pyw','pyi','rb','go','rs','java','kt','kts','scala','groovy',
+  'c','cc','cpp','cxx','h','hpp','hxx','cs','php','sh','bash','zsh','fish','ps1',
+  'swift','dart','lua','r','ex','exs','erl','hs','ml','clj','cljs','html','htm',
+  'xml','svg','xhtml','vue','svelte','astro','css','scss','sass','less','styl',
+  'yaml','yml','toml','ini','cfg','conf','properties','sql','graphql','gql',
+  'proto','tf','hcl','nix','makefile','mk','cmake','gradle','dockerfile',
+  'csv','tsv','log','env','gitignore','gitattributes','editorconfig','nvmrc',
+  'npmrc','prettierrc','babelrc','eslintrc','lock','sum','mod',
+]);
+
+const IMAGE_EXTS = new Set([
+  'png','jpg','jpeg','gif','svg','webp','ico','bmp','avif','tiff','tif','apng',
+]);
+
+let fileMap    = new Map();
+let gitFileMap = new Map();
+let currentBlobURL = null;
+let selectedEl = null;
+let gitCommits = [];
+let gitVisible = false;
+
+function H(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmtSize(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  return (b/1048576).toFixed(1) + ' MB';
+}
+function extOf(name) { const i = name.lastIndexOf('.'); return i >= 0 ? name.slice(i+1).toLowerCase() : ''; }
+function iconFor(name, isDir) {
+  if (isDir) return '📁';
+  const e = extOf(name);
+  if (IMAGE_EXTS.has(e)) return '🖼️';
+  if (TEXT_EXTS.has(e))  return '📄';
+  return '📎';
+}
+function isText(mime, ext) {
+  if (mime) {
+    if (mime.startsWith('text/')) return true;
+    if (/^application\/(json|xml|javascript|x-sh|typescript)/.test(mime)) return true;
+  }
+  return TEXT_EXTS.has(ext);
+}
+function revokeBlob() {
+  if (currentBlobURL) { URL.revokeObjectURL(currentBlobURL); currentBlobURL = null; }
+}
+
+// ── tree ───────────────────────────────────────────────────────────────────────
+function buildTree(files) {
+  const root = { children: new Map(), isDir: true };
+  let ignored = 0;
+  for (const file of files) {
+    const rel = file.webkitRelativePath; if (!rel) continue;
+    const parts = rel.split('/');
+
+    // Auto-detect: if path passes through .git, route to gitFileMap (not the file tree)
+    if (parts.includes('.git')) {
+      gitFileMap.set(rel, file);
+      ignored++;
+      continue;
+    }
+
+    if (parts.some(p => IGNORED_DIRS.has(p))) { ignored++; continue; }
+    const fname = parts[parts.length - 1]; if (!fname) { ignored++; continue; }
+    fileMap.set(rel, file);
+    let node = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const seg = parts[i];
+      if (!node.children.has(seg))
+        node.children.set(seg, { name:seg, isDir:true, children:new Map(), expanded:(i===0) });
+      node = node.children.get(seg);
+    }
+    node.children.set(fname, { name:fname, isDir:false, path:rel });
+  }
+  return { root, ignored };
+}
+
+function sortedKids(node) {
+  const dirs=[], files=[];
+  for (const c of node.children.values()) (c.isDir?dirs:files).push(c);
+  dirs.sort((a,b)=>a.name.localeCompare(b.name));
+  files.sort((a,b)=>a.name.localeCompare(b.name));
+  return [...dirs,...files];
+}
+
+function renderChildren(tn, container, depth) {
+  for (const c of sortedKids(tn)) c.isDir ? renderDir(c,container,depth) : renderFile(c,container,depth);
+}
+
+function renderDir(node, container, depth) {
+  const indent = depth*12+4;
+  const row = document.createElement('div'); row.className='tree-item'; row.style.paddingLeft=indent+'px';
+  const tog=document.createElement('span'); tog.className='tree-toggle'; tog.textContent=node.expanded?'▾':'▸';
+  const ico=document.createElement('span'); ico.className='tree-icon'; ico.textContent='📁';
+  const lbl=document.createElement('span'); lbl.className='tree-name'; lbl.textContent=node.name; lbl.title=node.name;
+  row.append(tog,ico,lbl);
+  const sub=document.createElement('div'); sub.style.display=node.expanded?'':'none';
+  row.addEventListener('click',e=>{
+    e.stopPropagation(); node.expanded=!node.expanded; tog.textContent=node.expanded?'▾':'▸';
+    if(node.expanded){if(!sub.hasChildNodes())renderChildren(node,sub,depth+1);sub.style.display='';}
+    else sub.style.display='none';
+  });
+  if(node.expanded) renderChildren(node,sub,depth+1);
+  container.append(row,sub);
+}
+
+function renderFile(node, container, depth) {
+  const indent = depth*12+4;
+  const row=document.createElement('div'); row.className='tree-item'; row.style.paddingLeft=indent+'px';
+  row.dataset.path=node.path;
+  const tog=document.createElement('span'); tog.className='tree-toggle';
+  const ico=document.createElement('span'); ico.className='tree-icon'; ico.textContent=iconFor(node.name,false);
+  const lbl=document.createElement('span'); lbl.className='tree-name'; lbl.textContent=node.name; lbl.title=node.path;
+  row.append(tog,ico,lbl);
+  row.addEventListener('click',()=>{
+    if(selectedEl) selectedEl.classList.remove('selected');
+    selectedEl=row; row.classList.add('selected');
+    if(gitVisible) showPreview();
+    openFile(node.path);
+  });
+  container.appendChild(row);
+}
+
+// ── preview ────────────────────────────────────────────────────────────────────
+async function openFile(path) {
+  const file = fileMap.get(path); if (!file) return;
+  revokeBlob();
+  const area=document.getElementById('preview-area');
+  const info=document.getElementById('file-info');
+  const notice=document.getElementById('truncated-notice');
+  area.innerHTML=''; notice.style.display='none';
+  info.style.display='block';
+  info.textContent=path+'   |   '+fmtSize(file.size)+'   |   '+(file.type||'(unknown)');
+  const ext=extOf(file.name), mime=file.type||'';
+  try {
+    if(mime.startsWith('image/')||(!mime&&IMAGE_EXTS.has(ext))){
+      const url=URL.createObjectURL(file); currentBlobURL=url;
+      const img=document.createElement('img'); img.className='preview-img'; img.src=url;
+      area.appendChild(img);
+    } else if(mime==='application/pdf'){
+      const url=URL.createObjectURL(file); currentBlobURL=url;
+      const f=document.createElement('iframe'); f.className='preview-iframe'; f.src=url;
+      area.appendChild(f);
+    } else if(mime.startsWith('video/')){
+      const url=URL.createObjectURL(file); currentBlobURL=url;
+      const v=document.createElement('video'); v.className='preview-video'; v.controls=true; v.src=url;
+      area.appendChild(v);
+    } else if(mime.startsWith('audio/')){
+      const url=URL.createObjectURL(file); currentBlobURL=url;
+      const a=document.createElement('audio'); a.className='preview-audio'; a.controls=true; a.src=url;
+      area.appendChild(a);
+    } else if(isText(mime,ext)){
+      const MAX=2*1024*1024; let text,truncated=false;
+      if(file.size>MAX){text=await file.slice(0,MAX).text();truncated=true;}
+      else text=await file.text();
+      renderCode(area,text,ext);
+      if(truncated){notice.style.display='block';notice.textContent='⚠  檔案過大，僅顯示前 2 MB';}
+    } else {
+      const d=document.createElement('div'); d.className='preview-unsupported';
+      d.innerHTML='此檔案類型不支援預覽<br><br>名稱：'+H(file.name)+'<br>大小：'+fmtSize(file.size)+'<br>類型：'+(mime||'未知');
+      area.appendChild(d);
+    }
+  } catch(err){
+    const d=document.createElement('div'); d.className='preview-error';
+    d.textContent='讀取失敗：'+err.message; area.appendChild(d);
+  }
+}
+
+function renderCode(container, text, ext) {
+  const lineCount=(text.match(/\n/g)||[]).length+1;
+  const nums=[]; for(let i=1;i<=lineCount;i++) nums.push(i);
+  const wrap=document.createElement('div'); wrap.className='code-wrap';
+  const ln=document.createElement('div'); ln.className='line-nums'; ln.textContent=nums.join('\n');
+  const cb=document.createElement('div'); cb.className='code-body';
+  const hl=Syntax.highlight(text,ext);
+  if(hl!==null) cb.innerHTML=hl; else cb.textContent=text;
+  wrap.append(ln,cb); container.appendChild(wrap);
+}
+
+// ── panel switching ────────────────────────────────────────────────────────────
+function showPreview() {
+  document.getElementById('preview-area').style.display='';
+  document.getElementById('git-panel').classList.remove('visible');
+  const btn=document.getElementById('git-btn');
+  btn.classList.remove('active'); btn.textContent='Git History';
+  gitVisible=false;
+  closeCommitDetail();
+}
+
+function showGitPanel() {
+  document.getElementById('preview-area').style.display='none';
+  document.getElementById('truncated-notice').style.display='none';
+  document.getElementById('git-panel').classList.add('visible');
+  const btn=document.getElementById('git-btn');
+  btn.classList.add('active'); btn.textContent='← 返回瀏覽';
+  const info=document.getElementById('file-info');
+  info.style.display='block';
+  info.textContent='Git History   |   共 '+gitCommits.length+' 筆紀錄';
+  gitVisible=true;
+}
+
+// ── git log parser ─────────────────────────────────────────────────────────────
+const LOG_RE = /^([0-9a-f]{40}) ([0-9a-f]{40}) (.+?) <([^>]*)> (\d+) ([+-]\d{4})\t(.+)$/;
+
+function parseGitLog(content, branch) {
+  const commits = [];
+  for (const line of content.split('\n')) {
+    if (!line.trim()) continue;
+    const m = line.match(LOG_RE); if (!m) continue;
+    const [, oldSha, newSha, author, email, tsStr, tz, action] = m;
+    const mm = action.match(/^commit(?:\s+\([^)]*\))?:\s*(.+)$/);
+    commits.push({
+      oldSha, newSha, shortSha: newSha.slice(0,7),
+      author, email, timestamp: parseInt(tsStr,10), tz,
+      message: mm ? mm[1] : action,
+      branch: branch || null,
+    });
+  }
+  return commits;
+}
+
+function findGitFile(suffix) {
+  const s = suffix.replace(/\\/g,'/');
+  for (const [p,f] of gitFileMap) {
+    const np = p.replace(/\\/g,'/');
+    if (np.endsWith('/'+s) || np === s) return f;
+  }
+  return null;
+}
+
+async function loadAllGitLogs() {
+  const all = [];
+  const head = findGitFile('logs/HEAD');
+  if (head) {
+    try { all.push(...parseGitLog(await head.text(), null)); } catch(e){}
+  }
+  for (const [path, file] of gitFileMap) {
+    const np = path.replace(/\\/g,'/');
+    const bm = np.match(/logs\/refs\/heads\/(.+)$/);
+    if (bm) {
+      try { all.push(...parseGitLog(await file.text(), bm[1])); } catch(e){}
+    }
+  }
+  // deduplicate by newSha, prefer branch-named entry
+  const seen = new Map();
+  for (const c of all) {
+    if (!seen.has(c.newSha) || (c.branch && !seen.get(c.newSha).branch))
+      seen.set(c.newSha, c);
+  }
+  return [...seen.values()].sort((a,b) => b.timestamp - a.timestamp);
+}
+
+function relTime(ts) {
+  const d = Math.floor(Date.now()/1000) - ts;
+  if (d < 60)       return '剛剛';
+  if (d < 3600)     return Math.floor(d/60)    + ' 分鐘前';
+  if (d < 86400)    return Math.floor(d/3600)  + ' 小時前';
+  if (d < 2592000)  return Math.floor(d/86400) + ' 天前';
+  if (d < 31536000) return Math.floor(d/2592000)  + ' 個月前';
+  return Math.floor(d/31536000) + ' 年前';
+}
+
+function fullTime(ts) {
+  return new Date(ts*1000).toLocaleString('zh-TW',{
+    year:'numeric',month:'2-digit',day:'2-digit',
+    hour:'2-digit',minute:'2-digit',second:'2-digit',
+  });
+}
+
+function renderGitList(commits) {
+  const list   = document.getElementById('git-list');
+  const header = document.getElementById('git-header');
+  list.innerHTML = '';
+  header.textContent = '共 '+commits.length+' 筆 commit 紀錄';
+  if (!commits.length) {
+    const e=document.createElement('div');
+    e.style.cssText='padding:24px;color:#858585;text-align:center;';
+    e.textContent='未找到 commit 紀錄'; list.appendChild(e); return;
+  }
+  const frag = document.createDocumentFragment();
+  for (const c of commits) {
+    const row=document.createElement('div'); row.className='commit-row';
+    row.addEventListener('click', () => openCommitDetail(c, row));
+
+    const sha=document.createElement('div'); sha.className='c-sha';
+    sha.textContent=c.shortSha; sha.title=c.newSha;
+
+    const main=document.createElement('div'); main.className='c-main';
+
+    const msg=document.createElement('div'); msg.className='c-msg';
+    msg.textContent=c.message; msg.title=c.message;
+
+    const meta=document.createElement('div'); meta.className='c-meta';
+
+    const author=document.createElement('span'); author.textContent=c.author;
+
+    const timeEl=document.createElement('span'); timeEl.className='c-time';
+    timeEl.textContent=relTime(c.timestamp); timeEl.title=fullTime(c.timestamp);
+
+    meta.append(author, timeEl);
+
+    if (c.branch) {
+      const br=document.createElement('span'); br.className='c-branch';
+      br.textContent=c.branch; meta.appendChild(br);
+    }
+
+    main.append(msg,meta); row.append(sha,main); frag.appendChild(row);
+  }
+  list.appendChild(frag);
+}
+
+// ── git object reader ─────────────────────────────────────────────────────────
+async function decompress(arrayBuffer) {
+  try {
+    const ds = new DecompressionStream('deflate');
+    const writer = ds.writable.getWriter();
+    const reader = ds.readable.getReader();
+    writer.write(new Uint8Array(arrayBuffer));
+    writer.close();
+    const chunks = [];
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+    const total = chunks.reduce((n, c) => n + c.length, 0);
+    const out = new Uint8Array(total);
+    let off = 0;
+    for (const c of chunks) { out.set(c, off); off += c.length; }
+    return out;
+  } catch(e) { return null; }
+}
+
+async function readGitObject(sha) {
+  if (!sha || sha.length < 4) return null;
+  const file = findGitFile('objects/' + sha.slice(0,2) + '/' + sha.slice(2));
+  if (!file) return null;
+  try {
+    const buf = await file.arrayBuffer();
+    const data = await decompress(buf);
+    if (!data) return null;
+    let i = 0;
+    while (i < data.length && data[i] !== 0) i++;
+    const header = new TextDecoder().decode(data.slice(0, i));
+    const body = data.slice(i + 1);
+    const [type] = header.split(' ');
+    return { type, body };
+  } catch(e) { return null; }
+}
+
+function parseCommitObject(body) {
+  const text = new TextDecoder().decode(body);
+  const lines = text.split('\n');
+  const r = { tree: null, parents: [], gpgsig: false, message: '' };
+  let i = 0;
+  while (i < lines.length && lines[i] !== '') {
+    const line = lines[i++];
+    if (line.startsWith('tree '))     r.tree = line.slice(5).trim();
+    else if (line.startsWith('parent ')) r.parents.push(line.slice(7).trim());
+    else if (line.startsWith('gpgsig')) r.gpgsig = true;
+  }
+  r.message = lines.slice(i + 1).join('\n').trimEnd();
+  return r;
+}
+
+function parseTreeObject(body) {
+  const entries = [];
+  let i = 0;
+  while (i < body.length) {
+    let j = i;
+    while (j < body.length && body[j] !== 0x20) j++;
+    const mode = new TextDecoder().decode(body.slice(i, j)); j++;
+    let k = j;
+    while (k < body.length && body[k] !== 0) k++;
+    const name = new TextDecoder().decode(body.slice(j, k)); k++;
+    if (k + 20 > body.length) break;
+    const sha = Array.from(body.slice(k, k+20)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    k += 20;
+    entries.push({ mode, name, sha, isDir: mode==='40000'||mode==='040000' });
+    i = k;
+  }
+  return entries;
+}
+
+async function flattenTree(treeSha, prefix) {
+  prefix = prefix || '';
+  const obj = await readGitObject(treeSha);
+  if (!obj || obj.type !== 'tree') return new Map();
+  const entries = parseTreeObject(obj.body);
+  const result = new Map();
+  for (const e of entries) {
+    const path = prefix + e.name;
+    if (e.isDir) {
+      const sub = await flattenTree(e.sha, path + '/');
+      for (const [p, info] of sub) result.set(p, info);
+    } else {
+      result.set(path, { sha: e.sha, mode: e.mode });
+    }
+  }
+  return result;
+}
+
+// ── diff engine ───────────────────────────────────────────────────────────────
+// Myers diff — O((n+m)*d), works on any size
+function diffLines(oldLines, newLines) {
+  const n = oldLines.length, m = newLines.length;
+  if (n === 0 && m === 0) return [];
+
+  // Snake: advance while lines match
+  function snake(k, x) {
+    let y = x - k;
+    while (x < n && y < m && oldLines[x] === newLines[y]) { x++; y++; }
+    return x;
+  }
+
+  const MAX = n + m;
+  const v = new Int32Array(2 * MAX + 2);
+  const trace = [];
+  outer:
+  for (let d = 0; d <= MAX; d++) {
+    const snap = v.slice();
+    trace.push(snap);
+    for (let k = -d; k <= d; k += 2) {
+      const idx = k + MAX;
+      let x;
+      if (k === -d || (k !== d && v[idx - 1] < v[idx + 1])) x = v[idx + 1];
+      else x = v[idx - 1] + 1;
+      x = snake(k, x);
+      v[idx] = x;
+      if (x >= n && x - k >= m) break outer;
+    }
+  }
+
+  // Backtrack
+  const diff = [];
+  let x = n, y = m;
+  for (let d = trace.length - 1; d >= 0; d--) {
+    const vv = trace[d];
+    const k = x - y;
+    const idx = k + MAX;
+    let prevK;
+    if (k === -d || (k !== d && vv[idx - 1] < vv[idx + 1])) prevK = k + 1;
+    else prevK = k - 1;
+    const prevX = vv[prevK + MAX];
+    const prevY = prevX - prevK;
+    while (x > prevX && y > prevY) { diff.push({ t:'=', l:oldLines[x-1] }); x--; y--; }
+    if (d > 0) {
+      if (x === prevX) { diff.push({ t:'+', l:newLines[y-1] }); y--; }
+      else              { diff.push({ t:'-', l:oldLines[x-1] }); x--; }
+    }
+  }
+  diff.reverse();
+  return diff;
+}
+
+function buildDiffHtml(diff) {
+  const CTX = 3;
+  const n = diff.length;
+  const mark = new Uint8Array(n);
+  for (let i = 0; i < n; i++)
+    if (diff[i].t !== '=')
+      for (let j = Math.max(0,i-CTX); j <= Math.min(n-1,i+CTX); j++) mark[j] = 1;
+
+  let html = '', oldN = 1, newN = 1, i = 0;
+  while (i < n) {
+    if (!mark[i]) {
+      let skip = 0;
+      while (i+skip < n && !mark[i+skip]) skip++;
+      oldN += skip; newN += skip; i += skip;
+      continue;
+    }
+    let start = i;
+    while (i < n && mark[i]) i++;
+    const chunk = diff.slice(start, i);
+    let oc = 0, nc = 0;
+    for (const d of chunk) { if(d.t==='='||d.t==='-') oc++; if(d.t==='='||d.t==='+') nc++; }
+    html += `<div class="diff-hunk"><div class="diff-hunk-header">@@ -${oldN},${oc} +${newN},${nc} @@</div>`;
+    for (const d of chunk) {
+      const cls = d.t==='+' ? 'diff-add' : d.t==='-' ? 'diff-del' : 'diff-ctx';
+      const pfx = d.t==='+' ? '+' : d.t==='-' ? '-' : ' ';
+      const lo = d.t!=='+' ? oldN++ : '';
+      const ln = d.t!=='-' ? newN++ : '';
+      html += `<div class="diff-line ${cls}"><span class="diff-lnum">${lo}</span><span class="diff-lnum">${ln}</span><span class="diff-prefix">${pfx}</span><span class="diff-text">${H(d.l)}</span></div>`;
+    }
+    html += '</div>';
+  }
+  return html;
+}
+
+// ── commit detail ─────────────────────────────────────────────────────────────
+let selectedCommitEl = null;
+
+function openCommitDetail(commit, rowEl) {
+  if (selectedCommitEl) selectedCommitEl.classList.remove('selected');
+  selectedCommitEl = rowEl;
+  rowEl.classList.add('selected');
+
+  const detail = document.getElementById('commit-detail');
+  detail.classList.add('open');
+  document.getElementById('cd-sha-label').textContent = commit.newSha;
+
+  const content = document.getElementById('cd-content');
+  content.innerHTML = '';
+
+  // ── metadata section ──
+  const fmtDate = ts => {
+    const d = new Date(ts * 1000);
+    return d.toLocaleString('zh-TW', {
+      year:'numeric',month:'2-digit',day:'2-digit',
+      hour:'2-digit',minute:'2-digit',second:'2-digit'
+    });
+  };
+
+  const metaSec = document.createElement('div'); metaSec.className = 'cd-section';
+  metaSec.innerHTML =
+    `<div class="cd-section-title">Commit</div>` +
+    row('SHA',     `<span class="cd-val mono">${H(commit.newSha)}</span>`) +
+    row('Parent',  `<span class="cd-val mono">${commit.oldSha && commit.oldSha !== '0'.repeat(40) ? H(commit.oldSha.slice(0,40)) : '(initial commit)'}</span>`) +
+    row('Author',  `<span class="cd-val">${H(commit.author)}</span>`) +
+    row('Email',   `<span class="cd-val">${H(commit.email || '—')}</span>`) +
+    row('Date',    `<span class="cd-val">${fmtDate(commit.timestamp)} <span style="color:#858585">${H(commit.tz||'')}</span></span>`) +
+    (commit.branch ? row('Branch', `<span class="cd-val" style="color:#9cdcfe">${H(commit.branch)}</span>`) : '');
+  content.appendChild(metaSec);
+
+  // ── full message section ──
+  const msgSec = document.createElement('div'); msgSec.className = 'cd-section';
+  msgSec.innerHTML = `<div class="cd-section-title">Message</div><div class="cd-msg-full">${H(commit.message)}</div>`;
+  content.appendChild(msgSec);
+
+  // ── changed files section (async) ──
+  const filesSec = document.createElement('div'); filesSec.className = 'cd-section';
+  filesSec.innerHTML = `<div class="cd-section-title">Changed Files</div><div class="cf-unavail">⏳ 讀取中…</div>`;
+  content.appendChild(filesSec);
+
+  loadChangedFiles(commit, filesSec);
+}
+
+function row(key, valHtml) {
+  return `<div class="cd-row"><span class="cd-key">${key}</span>${valHtml}</div>`;
+}
+
+async function loadChangedFiles(commit, container) {
+  try {
+    const commitObj = await readGitObject(commit.newSha);
+    if (!commitObj || commitObj.type !== 'commit') {
+      container.querySelector('.cf-unavail').textContent =
+        '⚠ 無法讀取 commit 物件（可能已 pack，瀏覽器無法解析 pack 格式）';
+      return;
+    }
+    const parsed = parseCommitObject(commitObj.body);
+    const parentSha = parsed.parents[0] || null;
+
+    // Overwrite message if object has fuller version
+    if (parsed.message && parsed.message.length > commit.message.length) {
+      const msgEl = container.closest('#cd-content')?.querySelector('.cd-msg-full');
+      if (msgEl) msgEl.textContent = parsed.message;
+    }
+
+    const [currentTree, parentTree] = await Promise.all([
+      parsed.tree ? flattenTree(parsed.tree) : Promise.resolve(new Map()),
+      parentSha ? (async () => {
+        const pObj = await readGitObject(parentSha);
+        if (!pObj || pObj.type !== 'commit') return new Map();
+        const pp = parseCommitObject(pObj.body);
+        return pp.tree ? flattenTree(pp.tree) : new Map();
+      })() : Promise.resolve(new Map()),
+    ]);
+
+    // Compute changed files
+    const changes = [];
+    for (const [path, info] of currentTree) {
+      const p = parentTree.get(path);
+      if (!p)              changes.push({ path, status:'A', sha:info.sha, parentSha:null });
+      else if (p.sha !== info.sha) changes.push({ path, status:'M', sha:info.sha, parentSha:p.sha });
+    }
+    for (const [path] of parentTree) {
+      if (!currentTree.has(path)) changes.push({ path, status:'D', sha:null, parentSha:parentTree.get(path).sha });
+    }
+    changes.sort((a,b) => a.path.localeCompare(b.path));
+
+    if (!changes.length && !parsed.tree) {
+      container.innerHTML = `<div class="cd-section-title">Changed Files</div><div class="cf-unavail">（初始 commit，無 parent 可比對）</div>`;
+      return;
+    }
+
+    let html = `<div class="cd-section-title">Changed Files (${changes.length})</div>`;
+    container.innerHTML = html;
+
+    // Render file list
+    for (const c of changes) {
+      const item = document.createElement('div'); item.className = 'cf-item';
+      item.innerHTML = `<span class="cf-status ${c.status}">${c.status}</span><span class="cf-path" title="${H(c.path)}">${H(c.path)}</span>`;
+      item.addEventListener('click', () => toggleFileDiff(c, item, container));
+      container.appendChild(item);
+    }
+  } catch(e) {
+    container.innerHTML = `<div class="cd-section-title">Changed Files</div><div class="cf-unavail">讀取失敗：${H(e.message)}</div>`;
+  }
+}
+
+async function toggleFileDiff(change, itemEl, container) {
+  // Toggle: if diff already open, close it
+  const existingDiff = itemEl.nextElementSibling;
+  if (existingDiff && existingDiff.classList.contains('diff-wrap')) {
+    existingDiff.remove(); itemEl.classList.remove('active'); return;
+  }
+  itemEl.classList.add('active');
+
+  const wrap = document.createElement('div'); wrap.className = 'diff-wrap';
+  wrap.innerHTML = `<div class="diff-file-header">${H(change.path)}</div><div style="padding:8px;color:#858585;font-size:12px">⏳ 載入差異…</div>`;
+  itemEl.insertAdjacentElement('afterend', wrap);
+
+  try {
+    const TEXT_LIMIT = 200 * 1024;
+    const isTextExt = TEXT_EXTS.has(extOf(change.path.split('/').pop()));
+
+    const readBlob = async sha => {
+      if (!sha) return '';
+      const obj = await readGitObject(sha);
+      if (!obj || obj.type !== 'blob') return null;
+      if (obj.body.length > TEXT_LIMIT) return null;
+      return new TextDecoder('utf-8', { fatal: false }).decode(obj.body);
+    };
+
+    if (!isTextExt) {
+      wrap.innerHTML = `<div class="diff-file-header">${H(change.path)}</div><div style="padding:8px;color:#858585;font-size:12px">（二進位檔，不顯示差異）</div>`;
+      return;
+    }
+
+    const [oldText, newText] = await Promise.all([
+      change.parentSha ? readBlob(change.parentSha) : Promise.resolve(''),
+      change.sha       ? readBlob(change.sha)       : Promise.resolve(''),
+    ]);
+
+    if (oldText === null || newText === null) {
+      wrap.innerHTML = `<div class="diff-file-header">${H(change.path)}</div><div style="padding:8px;color:#858585;font-size:12px">檔案過大，略過差異顯示（> 200KB）</div>`;
+      return;
+    }
+
+    const oldLines = oldText ? oldText.split('\n') : [];
+    const newLines = newText ? newText.split('\n') : [];
+    const diff = diffLines(oldLines, newLines);
+    const diffHtml = buildDiffHtml(diff);
+    wrap.innerHTML = `<div class="diff-file-header">${H(change.path)}</div>` + (diffHtml || '<div style="padding:8px;color:#858585;font-size:12px">無文字差異</div>');
+  } catch(e) {
+    wrap.innerHTML = `<div class="diff-file-header">${H(change.path)}</div><div style="padding:8px;color:#f44747;font-size:12px">讀取失敗：${H(e.message)}</div>`;
+  }
+}
+
+function closeCommitDetail() {
+  document.getElementById('commit-detail').classList.remove('open');
+  if (selectedCommitEl) { selectedCommitEl.classList.remove('selected'); selectedCommitEl = null; }
+}
+
+// ── toast ──────────────────────────────────────────────────────────────────────
+let toastTimer = null;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.classList.remove('show'); }, 3000);
+}
+
+// ── git enable helper ──────────────────────────────────────────────────────────
+async function tryEnableGit() {
+  if (findGitFile('logs/HEAD') === null) return false;
+  gitCommits = await loadAllGitLogs();
+  renderGitList(gitCommits);
+  const btn = document.getElementById('git-btn');
+  btn.disabled = false;
+  document.getElementById('git-hint').style.display = 'none';
+  showToast('✓ Git history 已載入：' + gitCommits.length + ' 筆 commit');
+  return true;
+}
+
+// ── inputs ─────────────────────────────────────────────────────────────────────
+document.getElementById('open-btn').addEventListener('click',() => document.getElementById('file-input').click());
+
+document.getElementById('file-input').addEventListener('change', async function() {
+  const files=Array.from(this.files); if(!files.length) return;
+  fileMap.clear(); gitFileMap.clear(); revokeBlob();
+  if(selectedEl){selectedEl.classList.remove('selected');selectedEl=null;}
+  if(gitVisible) showPreview();
+  document.getElementById('git-btn').disabled = true;
+
+  const {root,ignored}=buildTree(files); // auto-fills gitFileMap if .git is present
+  const rootName=(files[0].webkitRelativePath||'').split('/')[0]||'(資料夾)';
+  document.getElementById('folder-name').textContent=rootName;
+  document.getElementById('file-count').textContent=fileMap.size.toLocaleString()+' 個檔案';
+  document.getElementById('ignored-notice').textContent=
+    ignored>0?`（已略過 ${ignored.toLocaleString()} 個）`:'';
+
+  const treeRoot=document.getElementById('tree-root');
+  treeRoot.innerHTML=''; renderChildren(root,treeRoot,0);
+
+  const area=document.getElementById('preview-area');
+  area.innerHTML=''; area.style.display='';
+  const empty=document.createElement('div'); empty.id='empty-state'; empty.textContent='點擊左側檔案以預覽';
+  area.appendChild(empty);
+  document.getElementById('file-info').style.display='none';
+  document.getElementById('truncated-notice').style.display='none';
+
+  // If .git was included by the browser, enable git history automatically
+  const autoEnabled = await tryEnableGit();
+  if (!autoEnabled) {
+    // Show hint so user knows to manually select .git
+    document.getElementById('git-hint').style.display='block';
+  }
+
+  this.value='';
+});
+
+document.getElementById('open-git-btn').addEventListener('click',() => document.getElementById('git-input').click());
+
+document.getElementById('git-input').addEventListener('change', async function() {
+  const files=Array.from(this.files); if(!files.length) return;
+  // Merge into gitFileMap (don't clear fileMap)
+  gitFileMap.clear();
+  for(const f of files) if(f.webkitRelativePath) gitFileMap.set(f.webkitRelativePath,f);
+
+  const enabled = await tryEnableGit();
+  if (!enabled) {
+    alert('找不到 logs/HEAD。\n請確認選取的是專案下的 .git 資料夾本身（不是整個專案）。\n\n如果看不到 .git 資料夾：\n• macOS：在選擇視窗按 Cmd+Shift+. 顯示隱藏檔\n• Windows：先在檔案總管開啟「顯示隱藏項目」\n• Linux：在選擇器按 Ctrl+H');
+  } else {
+    showGitPanel();
+  }
+  this.value='';
+});
+
+document.getElementById('git-btn').addEventListener('click',() => {
+  if(gitVisible) showPreview(); else showGitPanel();
+});
+
+document.getElementById('cd-close').addEventListener('click', closeCommitDetail);
+
+// ── OS hint detection ──────────────────────────────────────────────────────────
+(function() {
+  const ua = navigator.userAgent;
+  const isMac = /Mac/.test(ua) && !/iPhone|iPad/.test(ua);
+  const isWin = /Windows/.test(ua);
+  if (isMac)      document.getElementById('hint-mac').style.display   = 'inline';
+  else if (isWin) document.getElementById('hint-win').style.display   = 'inline';
+  else            document.getElementById('hint-other').style.display = 'inline';
+})();
+</script>
+</body>
+</html>
